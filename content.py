@@ -41,7 +41,7 @@ def generate_content(pipe, kokoro_pipeline, prompts, config):
                 full_prompt,
                 width=config.gen_resolution[0],
                 height=config.gen_resolution[1],
-                num_inference_steps=20,
+                num_inference_steps=30,
                 guidance_scale=7.5,
                 generator=generator
             ).images[0]
