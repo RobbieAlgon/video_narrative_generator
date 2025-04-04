@@ -5,6 +5,7 @@ from video import create_narrative_video
 import json
 from groq import Groq
 import logging
+import os
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -92,7 +93,14 @@ def gerar_storyboard_grok(historia, num_cenas, estilo, tipo):
     logger.info("Storyboard gerado com sucesso.")
     return storyboard
 
-def gerar_video():
+def criar_pasta_projeto(project_name):
+    """Cria uma pasta para o projeto e retorna o caminho"""
+    pasta_projeto = os.path.join("projetos", project_name)
+    os.makedirs(pasta_projeto, exist_ok=True)
+    logger.info(f"Pasta do projeto criada em: {pasta_projeto}")
+    return pasta_projeto
+
+def gerar_video(pipe, kokoro_pipeline):
     """Função para gerar um vídeo narrativo"""
     video_type = input("Você quer criar um short ou um vídeo longo? (short/longo): ").lower()
     project_name = input("Nome do projeto: ").replace(" ", "_")
@@ -100,10 +108,13 @@ def gerar_video():
     num_cenas = int(input("🎬 Número de cenas: "))
     estilo = input("🎨 Estilo visual (ex: 'cyberpunk detailed'): ").strip() or "cinematic"
     
+    # Criar pasta para o projeto
+    pasta_projeto = criar_pasta_projeto(project_name)
+    json_file_path = os.path.join(pasta_projeto, f"{project_name}_prompts.json")
+    
     logger.info("Iniciando geração do storyboard ultra-consistente...")
     print("\n⏳ Gerando storyboard ultra-consistente com Grok...")
     json_data = gerar_storyboard_grok(historia, num_cenas, estilo, video_type)
-    json_file_path = f"{project_name}_prompts.json"
     with open(json_file_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
     logger.info(f"JSON salvo em: {json_file_path}")
@@ -115,29 +126,30 @@ def gerar_video():
 
     logger.info("Iniciando o gerador de vídeo narrativo...")
     print("Iniciando gerador de vídeo narrativo...")
-    config = VideoConfig(video_type, project_name, json_file_path, audio_path, voice)
+    config = VideoConfig(video_type, project_name, json_file_path, audio_path, voice, output_dir=pasta_projeto)
     prompts = process_json_prompts(config.json_file_path)
-    pipe, kokoro_pipeline = load_models()
     content_data = generate_content(pipe, kokoro_pipeline, prompts, config)
-    del pipe
-    clear_gpu_memory()
     output_path = create_narrative_video(config, content_data)
-    logger.info("Vídeo narrativo concluído com sucesso!")
-    print("✅ História narrativa concluída!")
+    logger.info(f"Vídeo narrativo concluído e salvo em: {output_path}")
+    print(f"✅ História narrativa concluída! Vídeo salvo em: {output_path}")
     return output_path
 
 def main():
     logger.info("Iniciando o Video Narrative Generator...")
     print("Bem-vindo ao Video Narrative Generator!")
     
+    # Carregar modelos uma vez no início
+    pipe, kokoro_pipeline = load_models()
+    
     while True:
         try:
-            gerar_video()
+            gerar_video(pipe, kokoro_pipeline)
             continuar = input("\nDeseja gerar outro vídeo? (sim/não): ").lower()
             if continuar not in ["sim", "s"]:
                 logger.info("Encerrando o programa...")
                 print("Encerrando o programa...")
                 break
+            clear_gpu_memory()  # Limpar memória após cada vídeo
         except Exception as e:
             logger.error(f"Erro durante a execução: {e}", exc_info=True)
             print(f"❌ Erro: {e}")
@@ -148,6 +160,8 @@ def main():
                 logger.info("Encerrando o programa após erro...")
                 print("Encerrando o programa após erro...")
                 break
+    del pipe  # Liberar memória dos modelos ao encerrar
+    clear_gpu_memory()
 
 if __name__ == "__main__":
     main()

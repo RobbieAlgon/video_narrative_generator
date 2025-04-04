@@ -29,12 +29,12 @@ def process_json_prompts(json_file_path):
     return prompts
 
 def generate_content(pipe, kokoro_pipeline, prompts, config):
-    os.makedirs(config.output_folder, exist_ok=True)
+    os.makedirs(config.output_dir, exist_ok=True)  # Usar output_dir em vez de output_folder
     content_data = []
     global_seed = random.randint(1, 2147483647)
     for idx, item in enumerate(tqdm(prompts, desc="Gerando conteúdo")):
         full_prompt = f"{item['prompt_image']}, {item['style']}"
-        image_path = os.path.join(config.output_folder, item["filename"])
+        image_path = os.path.join(config.output_dir, item["filename"])
         if not os.path.exists(image_path):
             generator = torch.Generator(config.device).manual_seed(global_seed + idx)
             image = pipe(
@@ -46,7 +46,7 @@ def generate_content(pipe, kokoro_pipeline, prompts, config):
                 generator=generator
             ).images[0]
             image.save(image_path)
-        audio_path = os.path.join(config.output_folder, item["audio_filename"])
+        audio_path = os.path.join(config.output_dir, item["audio_filename"])
         if not os.path.exists(audio_path):
             voice = config.voice
             generator = kokoro_pipeline(item["prompt_audio"], voice=voice)
