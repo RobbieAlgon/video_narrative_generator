@@ -7,3 +7,4 @@ moviepy
 scipy
 numpy
 tqdm
+groq
