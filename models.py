@@ -12,6 +12,6 @@ def load_models():
     if torch.cuda.is_available():
         pipe.enable_attention_slicing()
     print("Carregando modelo Kokoro...")
-    kokoro_pipeline = KPipeline(lang_code='pt')
+    kokoro_pipeline = KPipeline(lang_code='p')
     print("Modelos carregados com sucesso!")
     return pipe, kokoro_pipeline
