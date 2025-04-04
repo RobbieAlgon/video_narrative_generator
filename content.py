@@ -1,12 +1,12 @@
 import os
 import torch
 import json
-import numpy as np
 from PIL import Image
 from moviepy.editor import AudioFileClip
 import soundfile as sf
 from tqdm import tqdm
 import random
+from diffusers import DiffusionPipeline
 
 def clear_gpu_memory():
     if torch.cuda.is_available():
@@ -29,23 +29,31 @@ def process_json_prompts(json_file_path):
     return prompts
 
 def generate_content(pipe, kokoro_pipeline, prompts, config):
-    os.makedirs(config.output_dir, exist_ok=True)  # Usar output_dir em vez de output_folder
+    os.makedirs(config.output_dir, exist_ok=True)
     content_data = []
     global_seed = random.randint(1, 2147483647)
+    
+    # Playground V2.5 usa 1024x1024; ajustaremos no video.py
+    gen_width, gen_height = 1024, 1024
+    print(f"[INFO] Usando resolução {gen_width}x{gen_height} para Playground V2.5. Ajuste final será feito no vídeo.")
+
     for idx, item in enumerate(tqdm(prompts, desc="Gerando conteúdo")):
         full_prompt = f"{item['prompt_image']}, {item['style']}"
         image_path = os.path.join(config.output_dir, item["filename"])
+        
         if not os.path.exists(image_path):
             generator = torch.Generator(config.device).manual_seed(global_seed + idx)
             image = pipe(
-                full_prompt,
-                width=config.gen_resolution[0],
-                height=config.gen_resolution[1],
-                num_inference_steps=30,
-                guidance_scale=7.5,
+                prompt=full_prompt,
+                negative_prompt="blurry, low quality, bad anatomy",
+                width=gen_width,
+                height=gen_height,
+                num_inference_steps=25,
+                guidance_scale=3.0,
                 generator=generator
             ).images[0]
             image.save(image_path)
+
         audio_path = os.path.join(config.output_dir, item["audio_filename"])
         if not os.path.exists(audio_path):
             voice = config.voice
@@ -53,6 +61,7 @@ def generate_content(pipe, kokoro_pipeline, prompts, config):
             for i, (gs, ps, audio) in enumerate(generator):
                 sf.write(audio_path, audio, 24000)
                 break
+
         audio_clip = AudioFileClip(audio_path)
         content_data.append({
             "image_path": image_path,

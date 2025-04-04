@@ -149,7 +149,7 @@ def main():
                 logger.info("Encerrando o programa...")
                 print("Encerrando o programa...")
                 break
-            clear_gpu_memory()  # Limpar memória após cada vídeo
+            clear_gpu_memory()
         except Exception as e:
             logger.error(f"Erro durante a execução: {e}", exc_info=True)
             print(f"❌ Erro: {e}")
@@ -160,7 +160,7 @@ def main():
                 logger.info("Encerrando o programa após erro...")
                 print("Encerrando o programa após erro...")
                 break
-    del pipe  # Liberar memória dos modelos ao encerrar
+    del pipe
     clear_gpu_memory()
 
 if __name__ == "__main__":

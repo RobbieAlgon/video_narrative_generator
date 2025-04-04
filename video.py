@@ -53,7 +53,7 @@ def create_narrative_video(config, content_data):
         bg_audio = bg_audio.loop(duration=final_video.duration) if bg_audio.duration < final_video.duration else bg_audio.subclip(0, final_video.duration)
         final_audio = CompositeVideoClip([final_video.audio, bg_audio])
         final_video = final_video.set_audio(final_audio)
-    output_path = os.path.join(config.output_dir, config.output_filename)  # Usar output_dir
+    output_path = os.path.join(config.output_dir, config.output_filename)
     print(f"Renderizando vídeo... Duração total: {final_video.duration:.2f}s")
     final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac", bitrate="4000k", threads=4)
     print(f"Vídeo narrativo salvo em: {output_path}")
