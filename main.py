@@ -25,7 +25,7 @@ def limitar_tokens(texto, max_tokens):
     return " ".join(tokens[:max_tokens])
 
 def gerar_prompt(historia, num_cenas, estilo, tipo):
-    """Gera um prompt que enfatiza consistência extrema"""
+    """Gera um prompt que enfatiza consistência extrema e narração adequada"""
     return f"""
     Gere EXATAMENTE {num_cenas} cenas em JSON para um vídeo {tipo}.
     HISTÓRIA: {historia}
@@ -35,24 +35,33 @@ def gerar_prompt(historia, num_cenas, estilo, tipo):
     1. EXTREMA CONSISTÊNCIA VISUAL ENTRE CENAS:
        - Personagens devem ter EXATAMENTE a mesma aparência em todas as cenas
        - Cenários devem manter os mesmos elementos visuais
-       - Use os MESMOS TERMOS para descrever os mesmos elementos
+       - Use os MESMOS TERMOS para descrever os mesmos elementos visuais
 
-    2. LIMITE DE TOKENS:
+    2. DIFERENCIAÇÃO ENTRE IMAGEM E ÁUDIO:
+       - 'prompt_image': Descrição visual detalhada EM INGLÊS para gerar a imagem, focada em elementos visuais consistentes
+       - 'prompt_audio': Narração narrativa em português que avança a história de forma natural, NÃO descreva a cena visual, mas sim o contexto, emoções ou eventos da narrativa
+
+    3. LIMITE DE TOKENS:
        - prompt_image + style deve ter NO MÁXIMO 77 tokens no total
-       - Seja conciso mas descritivo
+       - Seja conciso mas descritivo no prompt_image
+       - Mantenha o prompt_audio curto e narrativo (máximo 20 palavras por cena)
 
-    3. FORMATO EXIGIDO (retorne APENAS JSON):
+    4. FORMATO EXIGIDO (retorne APENAS JSON):
     {{
       "scenes": [
         {{
           "prompt_image": "descrição visual EM INGLÊS com elementos consistentes",
-          "prompt_audio": "narração em português",
+          "prompt_audio": "narração em português que avança a história",
           "filename": "scene_001.png",
           "audio_filename": "audio_scene_001.wav",
           "style": "{estilo}"
         }}
       ]
     }}
+
+    EXEMPLO:
+    - prompt_image: "A man in a red jacket walking through a dense forest, cinematic"
+    - prompt_audio: "Ele sentia o peso da aventura ao entrar na floresta."
     """
 
 def aplicar_consistencia(storyboard):
