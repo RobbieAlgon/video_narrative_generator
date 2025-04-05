@@ -1,6 +1,11 @@
 import os
 from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip, TextClip, ColorClip
 import moviepy.video.fx.all as vfx
+import moviepy.config as mp_config
+
+# Verificar e configurar o caminho do ImageMagick
+if not mp_config.IMAGEMAGICK_BINARY:
+    mp_config.IMAGEMAGICK_BINARY = "/usr/bin/convert"  # Caminho padrão no Colab após instalação
 
 def apply_ken_burns_effect(img_clip, duration, final_resolution):
     width, height = final_resolution
