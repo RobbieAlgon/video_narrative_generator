@@ -115,12 +115,14 @@ def create_dynamic_subtitles(text, duration, final_resolution):
 
 def create_scene_clip(item, config):
     """Cria um clipe de cena com zoom e efeitos"""
-    logger.info(f"Criando clipe para a cena: {item['filename']}")
+    logger.info(f"Conteúdo do item: {item}")  # Log para debug
     
-    # Carregar a imagem
-    image_path = os.path.join(config.output_dir, item["filename"])
-    if not os.path.exists(image_path):
+    # Verificar se temos o caminho da imagem
+    image_path = item.get("image_path") or os.path.join(config.output_dir, item.get("filename", ""))
+    if not image_path or not os.path.exists(image_path):
         raise FileNotFoundError(f"Arquivo de imagem não encontrado: {image_path}")
+    
+    logger.info(f"Criando clipe para a cena: {image_path}")
     
     # Criar clipe da imagem
     clip = ImageClip(image_path)
@@ -147,28 +149,33 @@ def create_scene_clip(item, config):
 
 def create_narrative_video(config, content_data):
     logger.info(f"Iniciando criação do vídeo com add_subtitles={config.add_subtitles}")
+    logger.info(f"Conteúdo recebido: {content_data}")  # Log para debug
     clips = []
     
     for i, item in enumerate(content_data):
-        # Criar clipe da cena principal
-        scene_clip = create_scene_clip(item, config)
-        audio_clip = item["audio_clip"]
-        
-        # Garantir que o clipe principal preencha toda a tela
-        scene_clip = scene_clip.resize(config.final_resolution)
-        scene = scene_clip.set_audio(audio_clip)
-        
-        if config.add_subtitles:
-            logger.info(f"Adicionando legendas para a cena {i+1}")
-            subtitle_clip = create_dynamic_subtitles(item["prompt"], item["duration"], config.final_resolution)
+        try:
+            # Criar clipe da cena principal
+            scene_clip = create_scene_clip(item, config)
+            audio_clip = item["audio_clip"]
             
-            # Combinar cena principal com legendas
-            scene = CompositeVideoClip(
-                [scene, subtitle_clip],
-                size=config.final_resolution
-            )
-        
-        clips.append(scene)
+            # Garantir que o clipe principal preencha toda a tela
+            scene_clip = scene_clip.resize(config.final_resolution)
+            scene = scene_clip.set_audio(audio_clip)
+            
+            if config.add_subtitles:
+                logger.info(f"Adicionando legendas para a cena {i+1}")
+                subtitle_clip = create_dynamic_subtitles(item["prompt"], item["duration"], config.final_resolution)
+                
+                # Combinar cena principal com legendas
+                scene = CompositeVideoClip(
+                    [scene, subtitle_clip],
+                    size=config.final_resolution
+                )
+            
+            clips.append(scene)
+        except Exception as e:
+            logger.error(f"Erro ao processar cena {i+1}: {e}")
+            raise
     
     # Aplicar transições
     for i, clip in enumerate(clips):
