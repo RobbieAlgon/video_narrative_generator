@@ -1,5 +1,5 @@
 import os
-from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip, TextClip, ColorClip, VideoFileClip
+from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip, TextClip, ColorClip, VideoFileClip, VideoClip
 import moviepy.video.fx.all as vfx
 import moviepy.config as mp_config
 import logging
@@ -83,16 +83,6 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     words = text.split()
     word_duration = duration / len(words)
     
-    # Criar um clipe de fundo para as legendas
-    bg_height = 80
-    bg_clip = ColorClip(size=(width, bg_height), color=(0, 0, 0))
-    bg_clip = bg_clip.set_opacity(0.5)
-    bg_clip = bg_clip.set_duration(duration)
-    
-    # Posicionar o fundo mais acima na tela (70% da altura)
-    subtitle_y = int(height * 0.7)
-    bg_clip = bg_clip.set_position(('center', subtitle_y))
-    
     # Criar clipes de texto para cada palavra
     text_clips = []
     colors = ['yellow', 'cyan', 'magenta', 'white', 'green']
@@ -111,40 +101,49 @@ def create_dynamic_subtitles(text, duration, final_resolution):
             stroke_width=2
         )
         
-        # Posicionar o texto no centro da área de legendas
-        txt_clip = txt_clip.set_position(('center', subtitle_y + 20))
+        # Posicionar o texto na parte inferior da tela
+        txt_clip = txt_clip.set_position(('center', height - 100))
         txt_clip = txt_clip.set_start(start_time)
         txt_clip = txt_clip.set_end(end_time)
         txt_clip = txt_clip.set_duration(word_duration)
         
         text_clips.append(txt_clip)
     
-    # Combinar fundo e texto
-    subtitle_composite = CompositeVideoClip([bg_clip] + text_clips, size=final_resolution)
+    # Combinar apenas os clipes de texto
+    subtitle_composite = CompositeVideoClip(text_clips, size=final_resolution)
     return subtitle_composite
 
 def create_scene_clip(item, config):
-    """Cria um clipe de cena, podendo ser vídeo ou imagem"""
-    if not os.path.exists(item["image_path"]):
-        raise FileNotFoundError(f"Arquivo não encontrado: {item['image_path']}")
+    """Cria um clipe de cena com zoom e efeitos"""
+    logger.info(f"Criando clipe para a cena: {item['filename']}")
     
-    # Decidir se usa vídeo ou imagem
-    use_video = should_use_video() and config.enable_video_generation
+    # Carregar a imagem
+    image_path = os.path.join(config.output_dir, item["filename"])
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Arquivo de imagem não encontrado: {image_path}")
     
-    if use_video:
-        # Tentar gerar vídeo
-        video_clip = generate_video_clip(item["prompt_image"], item["duration"], config.final_resolution)
-        if video_clip is not None:
-            # Ajustar vídeo para a resolução final
-            video_clip = video_clip.resize(config.final_resolution)
-            return video_clip
+    # Criar clipe da imagem
+    clip = ImageClip(image_path)
     
-    # Se não gerou vídeo ou falhou, usar imagem
-    img_clip = ImageClip(item["image_path"])
-    if img_clip is None:
-        raise ValueError(f"Falha ao carregar imagem: {item['image_path']}")
+    # Garantir que a imagem preencha toda a tela
+    clip = clip.resize(width=config.final_resolution[0], height=config.final_resolution[1])
     
-    return apply_ken_burns_effect(img_clip, item["duration"], config.final_resolution)
+    # Aplicar zoom suave
+    zoom_factor = 1.1
+    zoom_duration = item["duration"]
+    
+    def make_frame(t):
+        current_zoom = 1 + (zoom_factor - 1) * (t / zoom_duration)
+        return clip.resize(width=int(config.final_resolution[0] * current_zoom),
+                          height=int(config.final_resolution[1] * current_zoom))
+    
+    # Criar clipe com zoom
+    zoom_clip = VideoClip(make_frame, duration=zoom_duration)
+    
+    # Garantir que o clipe final tenha a resolução correta
+    zoom_clip = zoom_clip.resize(config.final_resolution)
+    
+    return zoom_clip
 
 def create_narrative_video(config, content_data):
     logger.info(f"Iniciando criação do vídeo com add_subtitles={config.add_subtitles}")
