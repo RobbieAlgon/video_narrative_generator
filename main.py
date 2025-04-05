@@ -122,24 +122,43 @@ def criar_pasta_projeto(project_name):
     logger.info(f"Pasta do projeto criada em: {pasta_projeto}")
     return pasta_projeto
 
-def gerar_video(pipe, kokoro_pipeline, lang_code):
-    """Função para gerar um vídeo narrativo"""
-    video_type = input("Você quer criar um short ou um vídeo longo? (short/longo): ").lower()
+def gerar_video(pipe, kokoro_pipeline):
+    """Função para gerar um vídeo narrativo com ordem de inputs ajustada"""
+    print("\n=== Novo Vídeo ===")
+    print("Escolha o idioma da narração (a: inglês americano, b: inglês britânico, j: japonês, z: chinês, e: espanhol, f: francês, h: hindi, i: italiano, p: português): ")
+    lang_code = input().lower()
+    if lang_code not in IDIOMAS:
+        print(f"Idioma '{lang_code}' não suportado. Usando português (p) como padrão.")
+        lang_code = 'p'
+    
+    video_type = input("Escolha o tipo de vídeo (short/longo): ").lower()
     project_name = input("Nome do projeto: ").replace(" ", "_")
     historia = input("📖 Tema/Narrativa: ").strip()
     num_cenas = int(input("🎬 Número de cenas: "))
-    estilo = input("🎨 Estilo visual (ex: 'cyberpunk detailed'): ").strip() or "cinematic"
+    estilo = input("🎨 Estilo visual (ex: 'cyberpunk detailed', padrão 'cinematic'): ").strip() or "cinematic"
     
-    # Mostrar vozes disponíveis
+    # Mostrar vozes disponíveis e escolher
     vozes = IDIOMAS[lang_code]['vozes']
     idioma_nome = IDIOMAS[lang_code]['nome']
     print(f"Vozes disponíveis para {idioma_nome}: {', '.join(vozes)}")
+    voice = input(f"Escolha a voz para {idioma_nome} (padrão '{vozes[0]}'): ") or vozes[0]
+    if voice not in vozes:
+        print(f"Voz '{voice}' não disponível. Usando {vozes[0]} como padrão.")
+        voice = vozes[0]
+    
+    # Música de fundo
+    add_music = input("Adicionar música de fundo? (sim/não): ").lower() in ["sim", "s"]
+    audio_path = input("Caminho do arquivo de áudio (ex: '/content/musica.mp3'): ") if add_music else None
+    
+    # Legendas dinâmicas
+    add_subtitles = input("Adicionar legendas dinâmicas? (sim/não): ").lower() in ["sim", "s"]
+    logger.info(f"Opção de legendas escolhida: {add_subtitles}")
     
     # Criar pasta para o projeto
     pasta_projeto = criar_pasta_projeto(project_name)
     json_file_path = os.path.join(pasta_projeto, f"{project_name}_prompts.json")
     
-    logger.info("Iniciando geração do storyboard ultra-consistente...")
+    logger.info("Iniciando geração do storyboard...")
     print("\n⏳ Gerando storyboard ultra-consistente com Grok...")
     json_data = gerar_storyboard_grok(historia, num_cenas, estilo, video_type, lang_code)
     with open(json_file_path, "w", encoding="utf-8") as f:
@@ -147,19 +166,10 @@ def gerar_video(pipe, kokoro_pipeline, lang_code):
     logger.info(f"JSON salvo em: {json_file_path}")
     print(f"JSON gerado e salvo em: {json_file_path}")
 
-    add_music = input("Adicionar música de fundo? (sim/não): ").lower() in ["sim", "s"]
-    audio_path = input("Caminho do arquivo de áudio: ") if add_music else None
-    voice = input(f"Escolha a voz para {idioma_nome} ({', '.join(vozes)}): ") or vozes[0]
-    if voice not in vozes:
-        print(f"Voz '{voice}' não disponível para {idioma_nome}. Usando {vozes[0]} como padrão.")
-        voice = vozes[0]
-    
-    # Opção de legendas
-    add_subtitles = input("Adicionar legendas dinâmicas ao vídeo? (sim/não): ").lower() in ["sim", "s"]
-
     logger.info("Iniciando o gerador de vídeo narrativo...")
     print("Iniciando gerador de vídeo narrativo...")
     config = VideoConfig(video_type, project_name, json_file_path, audio_path, voice, output_dir=pasta_projeto, lang_code=lang_code, add_subtitles=add_subtitles)
+    logger.info(f"Configuração de legendas no VideoConfig: {config.add_subtitles}")
     prompts = process_json_prompts(config.json_file_path)
     content_data = generate_content(pipe, kokoro_pipeline, prompts, config)
     output_path = create_narrative_video(config, content_data)
@@ -171,19 +181,19 @@ def main():
     logger.info("Iniciando o Video Narrative Generator...")
     print("Bem-vindo ao Video Narrative Generator!")
     
-    # Escolha do idioma antes de carregar os modelos
-    print("Escolha o idioma da narração (a: inglês americano, b: inglês britânico, j: japonês, z: chinês, e: espanhol, f: francês, h: hindi, i: italiano, p: português): ")
-    lang_code = input().lower()
-    if lang_code not in IDIOMAS:
-        print(f"Idioma '{lang_code}' não suportado. Usando português (p) como padrão.")
-        lang_code = 'p'
-    
-    # Carregar modelos com o idioma escolhido
-    pipe, kokoro_pipeline = load_models(lang_code)
+    # Carregar modelos uma vez no início
+    pipe, kokoro_pipeline = None, None
     
     while True:
         try:
-            gerar_video(pipe, kokoro_pipeline, lang_code)
+            if pipe is None or kokoro_pipeline is None:
+                print("Carregando modelos pela primeira vez ou após mudança de idioma...")
+                lang_code_temp = input("Escolha o idioma inicial (a: inglês americano, b: inglês britânico, j: japonês, z: chinês, e: espanhol, f: francês, h: hindi, i: italiano, p: português): ").lower()
+                if lang_code_temp not in IDIOMAS:
+                    lang_code_temp = 'p'
+                pipe, kokoro_pipeline = load_models(lang_code_temp)
+            
+            gerar_video(pipe, kokoro_pipeline)
             continuar = input("\nDeseja gerar outro vídeo? (sim/não): ").lower()
             if continuar not in ["sim", "s"]:
                 logger.info("Encerrando o programa...")

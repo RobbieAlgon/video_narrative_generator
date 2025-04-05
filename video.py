@@ -2,6 +2,10 @@ import os
 from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip, TextClip, ColorClip
 import moviepy.video.fx.all as vfx
 import moviepy.config as mp_config
+import logging
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 # Verificar e configurar o caminho do ImageMagick
 if not mp_config.IMAGEMAGICK_BINARY:
@@ -9,7 +13,16 @@ if not mp_config.IMAGEMAGICK_BINARY:
 
 def apply_ken_burns_effect(img_clip, duration, final_resolution):
     width, height = final_resolution
-    img_clip = img_clip.resize(height=height) if img_clip.w > img_clip.h else img_clip.resize(width=width)
+    # Redimensionar a imagem para preencher a resolução final, mantendo proporção
+    if width > height:  # Modo longo (horizontal)
+        img_clip = img_clip.resize(width=width)
+        if img_clip.h < height:
+            img_clip = img_clip.resize(height=height)
+    else:  # Modo short (vertical)
+        img_clip = img_clip.resize(height=height)
+        if img_clip.w < width:
+            img_clip = img_clip.resize(width=width)
+    
     zoom_factor = 1.2
     start_size = (int(img_clip.w * zoom_factor), int(img_clip.h * zoom_factor))
     end_size = (img_clip.w, img_clip.h)
@@ -30,6 +43,7 @@ def apply_ken_burns_effect(img_clip, duration, final_resolution):
 
 def create_dynamic_subtitles(text, duration, final_resolution):
     """Cria legendas dinâmicas com mudança de cor por palavra"""
+    logger.info(f"Gerando legendas para o texto: '{text}' com duração {duration}s")
     width, height = final_resolution
     words = text.split()
     word_duration = duration / len(words)  # Duração aproximada de cada palavra
@@ -40,29 +54,36 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     for i, word in enumerate(words):
         start_time = i * word_duration
         end_time = (i + 1) * word_duration
+        logger.info(f"Criando TextClip para '{word}' ({start_time}s - {end_time}s)")
         
-        # Criar um clipe de texto para cada palavra
-        txt_clip = (TextClip(word, fontsize=50, font='Arial-Bold', color=colors[i % len(colors)], stroke_color='black', stroke_width=2)
-                    .set_position(('center', height - 100))
-                    .set_start(start_time)
-                    .set_end(end_time)
-                    .set_duration(word_duration))
-        
-        subtitle_clips.append(txt_clip)
+        try:
+            txt_clip = (TextClip(word, fontsize=70, font='Arial-Bold', color=colors[i % len(colors)], 
+                                 stroke_color='black', stroke_width=2)
+                        .set_position(('center', height - 200))  # Ajustado para ficar mais visível
+                        .set_start(start_time)
+                        .set_end(end_time)
+                        .set_duration(word_duration))
+            subtitle_clips.append(txt_clip)
+        except Exception as e:
+            logger.error(f"Erro ao criar TextClip para '{word}': {e}")
+            raise
     
     # Fundo semi-transparente para melhor visibilidade
-    bg_clip = (ColorClip(size=(width, 150), color=(0, 0, 0))
-               .set_opacity(0.5)
-               .set_position(('center', height - 125))
+    bg_clip = (ColorClip(size=(width, 200), color=(0, 0, 0))
+               .set_opacity(0.6)
+               .set_position(('center', height - 225))
                .set_duration(duration))
     
-    return CompositeVideoClip([bg_clip] + subtitle_clips)
+    composite_clip = CompositeVideoClip([bg_clip] + subtitle_clips)
+    logger.info(f"Legendas criadas com {len(subtitle_clips)} palavras")
+    return composite_clip
 
 def create_narrative_video(config, content_data):
+    logger.info(f"Iniciando criação do vídeo com add_subtitles={config.add_subtitles}")
     clips = []
     total_duration = 0
     
-    for item in content_data:
+    for i, item in enumerate(content_data):
         if not os.path.exists(item["image_path"]):
             raise FileNotFoundError(f"Imagem não encontrada: {item['image_path']}")
         img_clip = ImageClip(item["image_path"])
@@ -72,19 +93,20 @@ def create_narrative_video(config, content_data):
         audio_clip = item["audio_clip"]
         scene = img_clip_with_effect.set_audio(audio_clip)
         
-        # Adicionar legendas dinâmicas se solicitado
         if config.add_subtitles:
+            logger.info(f"Adicionando legendas para a cena {i+1} com prompt: '{item['prompt']}'")
             subtitle_clip = create_dynamic_subtitles(item["prompt"], item["duration"], config.final_resolution)
             scene = CompositeVideoClip([scene, subtitle_clip])
+            logger.info(f"Legendas adicionadas à cena {i+1}")
         
         clips.append(scene)
         total_duration += item["duration"]
     
     for i, clip in enumerate(clips):
         if i == 0:
-            clips[i] = vfx.fadein(clip, 0.5)
+            clips[i] = clip.fadein(0.5)
         if i == len(clips) - 1:
-            clips[i] = vfx.fadeout(clip, 0.8)
+            clips[i] = clip.fadeout(0.8)
         elif i < len(clips) - 1:
             crossfade_duration = min(0.5, clips[i].duration / 4, clips[i+1].duration / 4)
             if crossfade_duration > 0:
