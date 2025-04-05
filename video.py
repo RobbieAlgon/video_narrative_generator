@@ -83,38 +83,45 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     words = text.split()
     word_duration = duration / len(words)
     
-    subtitle_clips = []
-    colors = ['yellow', 'cyan', 'magenta', 'white', 'green']
+    # Criar um clipe de fundo para as legendas
+    bg_height = 80
+    bg_clip = ColorClip(size=(width, bg_height), color=(0, 0, 0))
+    bg_clip = bg_clip.set_opacity(0.5)
+    bg_clip = bg_clip.set_duration(duration)
     
-    # Posicionar legendas no centro da tela
-    subtitle_y = height * 0.5  # 50% da altura (centro)
+    # Posicionar o fundo mais acima na tela (70% da altura)
+    subtitle_y = int(height * 0.7)
+    bg_clip = bg_clip.set_position(('center', subtitle_y))
+    
+    # Criar clipes de texto para cada palavra
+    text_clips = []
+    colors = ['yellow', 'cyan', 'magenta', 'white', 'green']
     
     for i, word in enumerate(words):
         start_time = i * word_duration
         end_time = (i + 1) * word_duration
-        logger.info(f"Criando TextClip para '{word}' ({start_time}s - {end_time}s)")
         
-        try:
-            txt_clip = (TextClip(word, fontsize=50, font='Arial-Bold', color=colors[i % len(colors)], 
-                                 stroke_color='black', stroke_width=2)
-                        .set_position(('center', subtitle_y))
-                        .set_start(start_time)
-                        .set_end(end_time)
-                        .set_duration(word_duration))
-            subtitle_clips.append(txt_clip)
-        except Exception as e:
-            logger.error(f"Erro ao criar TextClip para '{word}': {e}")
-            raise
+        # Criar clipe de texto para cada palavra
+        txt_clip = TextClip(
+            word,
+            fontsize=40,
+            font='Arial-Bold',
+            color=colors[i % len(colors)],
+            stroke_color='black',
+            stroke_width=2
+        )
+        
+        # Posicionar o texto no centro da área de legendas
+        txt_clip = txt_clip.set_position(('center', subtitle_y + 20))
+        txt_clip = txt_clip.set_start(start_time)
+        txt_clip = txt_clip.set_end(end_time)
+        txt_clip = txt_clip.set_duration(word_duration)
+        
+        text_clips.append(txt_clip)
     
-    # Fundo semi-transparente mais fino e centralizado
-    bg_clip = (ColorClip(size=(width, 80), color=(0, 0, 0))
-               .set_opacity(0.5)
-               .set_position(('center', subtitle_y - 40))
-               .set_duration(duration))
-    
-    composite_clip = CompositeVideoClip([bg_clip] + subtitle_clips)
-    logger.info(f"Legendas criadas com {len(subtitle_clips)} palavras")
-    return composite_clip
+    # Combinar fundo e texto
+    subtitle_composite = CompositeVideoClip([bg_clip] + text_clips, size=final_resolution)
+    return subtitle_composite
 
 def create_scene_clip(item, config):
     """Cria um clipe de cena, podendo ser vídeo ou imagem"""
@@ -142,23 +149,27 @@ def create_scene_clip(item, config):
 def create_narrative_video(config, content_data):
     logger.info(f"Iniciando criação do vídeo com add_subtitles={config.add_subtitles}")
     clips = []
-    total_duration = 0
     
     for i, item in enumerate(content_data):
+        # Criar clipe da cena principal
         scene_clip = create_scene_clip(item, config)
         audio_clip = item["audio_clip"]
+        
+        # Garantir que o clipe principal preencha toda a tela
+        scene_clip = scene_clip.resize(config.final_resolution)
         scene = scene_clip.set_audio(audio_clip)
         
         if config.add_subtitles:
-            logger.info(f"Adicionando legendas para a cena {i+1} com prompt: '{item['prompt']}'")
+            logger.info(f"Adicionando legendas para a cena {i+1}")
             subtitle_clip = create_dynamic_subtitles(item["prompt"], item["duration"], config.final_resolution)
-            # Garantir que a cena principal preencha toda a tela
-            scene = scene.resize(config.final_resolution)
-            scene = CompositeVideoClip([scene, subtitle_clip], size=config.final_resolution)
-            logger.info(f"Legendas adicionadas à cena {i+1}")
+            
+            # Combinar cena principal com legendas
+            scene = CompositeVideoClip(
+                [scene, subtitle_clip],
+                size=config.final_resolution
+            )
         
         clips.append(scene)
-        total_duration += item["duration"]
     
     # Aplicar transições
     for i, clip in enumerate(clips):
@@ -172,11 +183,14 @@ def create_narrative_video(config, content_data):
                 clips[i] = clips[i].crossfadeout(crossfade_duration)
                 clips[i+1] = clips[i+1].crossfadein(crossfade_duration)
     
+    # Concatenar todos os clipes
     final_video = concatenate_videoclips(clips, method="compose")
+    
+    # Adicionar música de fundo se especificada
     if config.audio_path:
         bg_audio = AudioFileClip(config.audio_path).volumex(0.2).audio_fadeout(2)
         bg_audio = bg_audio.loop(duration=final_video.duration) if bg_audio.duration < final_video.duration else bg_audio.subclip(0, final_video.duration)
-        final_audio = CompositeVideoClip([final_video.audio, bg_audio])
+        final_audio = CompositeAudioClip([final_video.audio, bg_audio])
         final_video = final_video.set_audio(final_audio)
     
     output_path = os.path.join(config.output_dir, config.output_filename)

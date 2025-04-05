@@ -48,7 +48,11 @@ macOS: brew install espeak (se tiver Homebrew instalado).
 #########################################################################
 
 # 1. Primeiro, garanta que estamos no diretório /content
-!### COMO RODAR O PROGRAMA
+%cd /content
+
+# 2. Remova o diretório existente (se houver) para evitar conflitos
+!rm -rf video_narrative_generator
+
 # 3. Clone o repositório novamente
 !git clone https://github.com/RobbieAlgon/video_narrative_generator.git
 
