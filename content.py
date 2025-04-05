@@ -33,7 +33,6 @@ def generate_content(pipe, kokoro_pipeline, prompts, config):
     content_data = []
     global_seed = random.randint(1, 2147483647)
     
-    # Playground V2.5 usa 1024x1024; ajustaremos no video.py
     gen_width, gen_height = 1024, 1024
     print(f"[INFO] Usando resolução {gen_width}x{gen_height} para Playground V2.5. Ajuste final será feito no vídeo.")
 
@@ -57,7 +56,7 @@ def generate_content(pipe, kokoro_pipeline, prompts, config):
         audio_path = os.path.join(config.output_dir, item["audio_filename"])
         if not os.path.exists(audio_path):
             voice = config.voice
-            generator = kokoro_pipeline(item["prompt_audio"], voice=voice)
+            generator = kokoro_pipeline(item["prompt_audio"], voice=voice, lang_code=config.lang_code)
             for i, (gs, ps, audio) in enumerate(generator):
                 sf.write(audio_path, audio, 24000)
                 break

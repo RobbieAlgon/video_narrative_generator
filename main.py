@@ -15,6 +15,19 @@ logger = logging.getLogger(__name__)
 API_KEY = "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"
 client = Groq(api_key=API_KEY)
 
+# Mapeamento de idiomas e vozes disponíveis
+IDIOMAS = {
+    'a': {'nome': 'inglês americano', 'vozes': ['af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_korean', 'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx', 'am_rhythm', 'am_santa']},
+    'b': {'nome': 'inglês britânico', 'vozes': ['bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily', 'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis']},
+    'j': {'nome': 'japonês', 'vozes': ['jf_alpha', 'jf_gongitsune', 'jf_nezumi', 'jf_tebukuro', 'jm_kumo']},
+    'z': {'nome': 'chinês mandarim', 'vozes': ['zf_xiaobei', 'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi', 'zm_yunjian', 'zm_yunxi', 'zm_yunxia', 'zm_yunyang']},
+    'e': {'nome': 'espanhol', 'vozes': ['ef_dora', 'em_alex', 'em_santa']},
+    'f': {'nome': 'francês', 'vozes': ['ff_siwis']},
+    'h': {'nome': 'hindi', 'vozes': ['hf_alpha', 'hf_beta', 'hm_omega', 'hm_psi']},
+    'i': {'nome': 'italiano', 'vozes': ['if_sara', 'im_nicola']},
+    'p': {'nome': 'português do Brasil', 'vozes': ['pf_dora', 'pm_alex', 'pm_santa']}
+}
+
 def contar_tokens(texto):
     """Conta tokens aproximados (1 token ≈ 1 palavra em inglês)"""
     return len(texto.split())
@@ -24,8 +37,9 @@ def limitar_tokens(texto, max_tokens):
     tokens = texto.split()
     return " ".join(tokens[:max_tokens])
 
-def gerar_prompt(historia, num_cenas, estilo, tipo):
+def gerar_prompt(historia, num_cenas, estilo, tipo, lang_code='p'):
     """Gera um prompt que enfatiza consistência extrema e narração adequada"""
+    idioma_nome = IDIOMAS.get(lang_code, IDIOMAS['p'])['nome']
     return f"""
     Gere EXATAMENTE {num_cenas} cenas em JSON para um vídeo {tipo}.
     HISTÓRIA: {historia}
@@ -39,19 +53,18 @@ def gerar_prompt(historia, num_cenas, estilo, tipo):
 
     2. DIFERENCIAÇÃO ENTRE IMAGEM E ÁUDIO:
        - 'prompt_image': Descrição visual detalhada EM INGLÊS para gerar a imagem, focada em elementos visuais consistentes
-       - 'prompt_audio': Narração narrativa em português que avança a história de forma natural, NÃO descreva a cena visual, mas sim o contexto, emoções ou eventos da narrativa
+       - 'prompt_audio': Narração narrativa em {idioma_nome} que avança a história de forma natural, NÃO descreva a cena visual, mas sim o contexto, emoções ou eventos da narrativa
 
     3. LIMITE DE TOKENS:
        - prompt_image + style deve ter NO MÁXIMO 77 tokens no total
        - Seja conciso mas descritivo no prompt_image
-       - Mantenha o prompt_audio curto e narrativo (máximo 20 palavras por cena)
 
     4. FORMATO EXIGIDO (retorne APENAS JSON):
     {{
       "scenes": [
         {{
           "prompt_image": "descrição visual EM INGLÊS com elementos consistentes",
-          "prompt_audio": "narração em português que avança a história",
+          "prompt_audio": "narração em {idioma_nome} que avança a história",
           "filename": "scene_001.png",
           "audio_filename": "audio_scene_001.wav",
           "style": "{estilo}"
@@ -61,7 +74,7 @@ def gerar_prompt(historia, num_cenas, estilo, tipo):
 
     EXEMPLO:
     - prompt_image: "A man in a red jacket walking through a dense forest, cinematic"
-    - prompt_audio: "Ele sentia o peso da aventura ao entrar na floresta."
+    - prompt_audio: "Ele sentia o peso da aventura ao entrar na floresta." (em português)
     """
 
 def aplicar_consistencia(storyboard):
@@ -88,10 +101,10 @@ def aplicar_consistencia(storyboard):
     
     return storyboard
 
-def gerar_storyboard_grok(historia, num_cenas, estilo, tipo):
+def gerar_storyboard_grok(historia, num_cenas, estilo, tipo, lang_code='p'):
     """Gera um storyboard ultra-consistente com o Grok"""
     logger.info("Chamando a API do Grok para gerar o storyboard...")
-    prompt = gerar_prompt(historia, num_cenas, estilo, tipo)
+    prompt = gerar_prompt(historia, num_cenas, estilo, tipo, lang_code)
     resposta = client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
         model="llama3-70b-8192",
@@ -117,13 +130,25 @@ def gerar_video(pipe, kokoro_pipeline):
     num_cenas = int(input("🎬 Número de cenas: "))
     estilo = input("🎨 Estilo visual (ex: 'cyberpunk detailed'): ").strip() or "cinematic"
     
+    # Escolha do idioma
+    print("Escolha o idioma da narração (a: inglês americano, b: inglês britânico, j: japonês, z: chinês, e: espanhol, f: francês, h: hindi, i: italiano, p: português): ")
+    lang_code = input().lower()
+    if lang_code not in IDIOMAS:
+        print(f"Idioma '{lang_code}' não suportado. Usando português (p) como padrão.")
+        lang_code = 'p'
+    idioma_nome = IDIOMAS[lang_code]['nome']
+    
+    # Mostrar vozes disponíveis
+    vozes = IDIOMAS[lang_code]['vozes']
+    print(f"Vozes disponíveis para {idioma_nome}: {', '.join(vozes)}")
+    
     # Criar pasta para o projeto
     pasta_projeto = criar_pasta_projeto(project_name)
     json_file_path = os.path.join(pasta_projeto, f"{project_name}_prompts.json")
     
     logger.info("Iniciando geração do storyboard ultra-consistente...")
     print("\n⏳ Gerando storyboard ultra-consistente com Grok...")
-    json_data = gerar_storyboard_grok(historia, num_cenas, estilo, video_type)
+    json_data = gerar_storyboard_grok(historia, num_cenas, estilo, video_type, lang_code)
     with open(json_file_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
     logger.info(f"JSON salvo em: {json_file_path}")
@@ -131,11 +156,14 @@ def gerar_video(pipe, kokoro_pipeline):
 
     add_music = input("Adicionar música de fundo? (sim/não): ").lower() in ["sim", "s"]
     audio_path = input("Caminho do arquivo de áudio: ") if add_music else None
-    voice = input("Escolha a voz (ex.: pm_alex, pm_santa, pf_dora): ") or "pm_alex"
+    voice = input(f"Escolha a voz para {idioma_nome} ({', '.join(vozes)}): ") or vozes[0]
+    if voice not in vozes:
+        print(f"Voz '{voice}' não disponível para {idioma_nome}. Usando {vozes[0]} como padrão.")
+        voice = vozes[0]
 
     logger.info("Iniciando o gerador de vídeo narrativo...")
     print("Iniciando gerador de vídeo narrativo...")
-    config = VideoConfig(video_type, project_name, json_file_path, audio_path, voice, output_dir=pasta_projeto)
+    config = VideoConfig(video_type, project_name, json_file_path, audio_path, voice, output_dir=pasta_projeto, lang_code=lang_code)
     prompts = process_json_prompts(config.json_file_path)
     content_data = generate_content(pipe, kokoro_pipeline, prompts, config)
     output_path = create_narrative_video(config, content_data)
