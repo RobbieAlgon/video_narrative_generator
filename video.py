@@ -15,22 +15,27 @@ def apply_ken_burns_effect(img_clip, duration, final_resolution):
     width, height = final_resolution
     
     # Redimensionar a imagem para preencher a resolução final, mantendo proporção
-    if width > height:  # Modo longo (1920x1080)
-        img_clip = img_clip.resize(height=height)  # Ajusta altura primeiro
-        if img_clip.w < width:  # Se largura ainda for menor, ajusta
-            img_clip = img_clip.resize(width=width)
-    else:  # Modo short (1080x1920)
-        img_clip = img_clip.resize(height=height)  # Ajusta altura primeiro
-        if img_clip.w < width:  # Se largura for menor, ajusta
-            img_clip = img_clip.resize(width=width)
+    img_ratio = img_clip.w / img_clip.h
+    target_ratio = width / height
     
-    # Garantir que a imagem preencha a tela inteira (corta excesso se necessário)
-    img_clip = img_clip.resize((width, height)) if img_clip.w != width or img_clip.h != height else img_clip
+    if img_ratio > target_ratio:
+        # Imagem mais larga que o alvo
+        new_height = height
+        new_width = int(height * img_ratio)
+    else:
+        # Imagem mais alta que o alvo
+        new_width = width
+        new_height = int(width / img_ratio)
+    
+    # Redimensionar mantendo proporção
+    img_clip = img_clip.resize((new_width, new_height))
     
     # Aplicar efeito Ken Burns (zoom e movimento)
-    zoom_factor = 1.2
-    start_size = (int(width * zoom_factor), int(height * zoom_factor))
-    end_size = (width, height)
+    zoom_factor = 1.1  # Reduzido para um zoom mais sutil
+    start_size = (int(new_width * zoom_factor), int(new_height * zoom_factor))
+    end_size = (new_width, new_height)
+    
+    # Calcular posições iniciais e finais para centralizar
     start_pos = ((start_size[0] - width) // 2, (start_size[1] - height) // 2)
     end_pos = ((end_size[0] - width) // 2, (end_size[1] - height) // 2)
     
@@ -59,8 +64,8 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     subtitle_clips = []
     colors = ['yellow', 'cyan', 'magenta', 'white', 'green']
     
-    # Posicionar legendas a 10% da altura a partir da base
-    subtitle_y = height * 0.9  # 90% da altura (perto da base)
+    # Posicionar legendas a 15% da altura a partir da base
+    subtitle_y = height * 0.85  # 85% da altura (mais próximo do centro)
     
     for i, word in enumerate(words):
         start_time = i * word_duration
@@ -68,9 +73,9 @@ def create_dynamic_subtitles(text, duration, final_resolution):
         logger.info(f"Criando TextClip para '{word}' ({start_time}s - {end_time}s)")
         
         try:
-            txt_clip = (TextClip(word, fontsize=70, font='Arial-Bold', color=colors[i % len(colors)], 
+            txt_clip = (TextClip(word, fontsize=50, font='Arial-Bold', color=colors[i % len(colors)], 
                                  stroke_color='black', stroke_width=2)
-                        .set_position(('center', subtitle_y - 50))  # Ajuste relativo
+                        .set_position(('center', subtitle_y))
                         .set_start(start_time)
                         .set_end(end_time)
                         .set_duration(word_duration))
@@ -79,10 +84,10 @@ def create_dynamic_subtitles(text, duration, final_resolution):
             logger.error(f"Erro ao criar TextClip para '{word}': {e}")
             raise
     
-    # Fundo semi-transparente
-    bg_clip = (ColorClip(size=(width, 100), color=(0, 0, 0))
-               .set_opacity(0.6)
-               .set_position(('center', subtitle_y - 75))
+    # Fundo semi-transparente mais fino
+    bg_clip = (ColorClip(size=(width, 80), color=(0, 0, 0))
+               .set_opacity(0.5)
+               .set_position(('center', subtitle_y - 40))
                .set_duration(duration))
     
     composite_clip = CompositeVideoClip([bg_clip] + subtitle_clips)
