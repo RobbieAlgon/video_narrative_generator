@@ -1,8 +1,9 @@
 import os
-from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip, TextClip, ColorClip
+from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip, TextClip, ColorClip, VideoFileClip
 import moviepy.video.fx.all as vfx
 import moviepy.config as mp_config
 import logging
+import random
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -11,6 +12,21 @@ logger = logging.getLogger(__name__)
 if not mp_config.IMAGEMAGICK_BINARY:
     mp_config.IMAGEMAGICK_BINARY = "/usr/bin/convert"  # Caminho padrão no Colab após instalação
 
+def should_use_video():
+    """Decide se deve usar vídeo ou imagem para uma cena"""
+    return random.random() < 0.3  # 30% de chance de usar vídeo
+
+def generate_video_clip(prompt, duration, final_resolution):
+    """Gera um clipe de vídeo usando IA"""
+    # TODO: Implementar geração de vídeo com Stable Video Diffusion ou outro modelo
+    # Por enquanto, retornamos um clipe de teste
+    logger.info(f"Gerando vídeo para o prompt: {prompt}")
+    # Aqui você implementaria a chamada para o modelo de geração de vídeo
+    # Por exemplo:
+    # video_path = stable_video_diffusion.generate(prompt, duration)
+    # return VideoFileClip(video_path)
+    return None  # Placeholder até implementar a geração real
+
 def apply_ken_burns_effect(img_clip, duration, final_resolution):
     width, height = final_resolution
     
@@ -18,20 +34,26 @@ def apply_ken_burns_effect(img_clip, duration, final_resolution):
     img_ratio = img_clip.w / img_clip.h
     target_ratio = width / height
     
-    if img_ratio > target_ratio:
-        # Imagem mais larga que o alvo
-        new_height = height
-        new_width = int(height * img_ratio)
-    else:
-        # Imagem mais alta que o alvo
+    # Para shorts (vertical), priorizamos a largura
+    if height > width:  # Modo vertical (short)
         new_width = width
         new_height = int(width / img_ratio)
+        if new_height < height:  # Se altura for menor que o alvo
+            new_height = height
+            new_width = int(height * img_ratio)
+    else:  # Modo horizontal (longo)
+        if img_ratio > target_ratio:
+            new_height = height
+            new_width = int(height * img_ratio)
+        else:
+            new_width = width
+            new_height = int(width / img_ratio)
     
     # Redimensionar mantendo proporção
     img_clip = img_clip.resize((new_width, new_height))
     
     # Aplicar efeito Ken Burns (zoom e movimento)
-    zoom_factor = 1.1  # Reduzido para um zoom mais sutil
+    zoom_factor = 1.1
     start_size = (int(new_width * zoom_factor), int(new_height * zoom_factor))
     end_size = (new_width, new_height)
     
@@ -64,8 +86,8 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     subtitle_clips = []
     colors = ['yellow', 'cyan', 'magenta', 'white', 'green']
     
-    # Posicionar legendas a 15% da altura a partir da base
-    subtitle_y = height * 0.85  # 85% da altura (mais próximo do centro)
+    # Posicionar legendas no centro da tela
+    subtitle_y = height * 0.5  # 50% da altura (centro)
     
     for i, word in enumerate(words):
         start_time = i * word_duration
@@ -84,7 +106,7 @@ def create_dynamic_subtitles(text, duration, final_resolution):
             logger.error(f"Erro ao criar TextClip para '{word}': {e}")
             raise
     
-    # Fundo semi-transparente mais fino
+    # Fundo semi-transparente mais fino e centralizado
     bg_clip = (ColorClip(size=(width, 80), color=(0, 0, 0))
                .set_opacity(0.5)
                .set_position(('center', subtitle_y - 40))
@@ -94,30 +116,51 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     logger.info(f"Legendas criadas com {len(subtitle_clips)} palavras")
     return composite_clip
 
+def create_scene_clip(item, config):
+    """Cria um clipe de cena, podendo ser vídeo ou imagem"""
+    if not os.path.exists(item["image_path"]):
+        raise FileNotFoundError(f"Arquivo não encontrado: {item['image_path']}")
+    
+    # Decidir se usa vídeo ou imagem
+    use_video = should_use_video() and config.enable_video_generation
+    
+    if use_video:
+        # Tentar gerar vídeo
+        video_clip = generate_video_clip(item["prompt_image"], item["duration"], config.final_resolution)
+        if video_clip is not None:
+            # Ajustar vídeo para a resolução final
+            video_clip = video_clip.resize(config.final_resolution)
+            return video_clip
+    
+    # Se não gerou vídeo ou falhou, usar imagem
+    img_clip = ImageClip(item["image_path"])
+    if img_clip is None:
+        raise ValueError(f"Falha ao carregar imagem: {item['image_path']}")
+    
+    return apply_ken_burns_effect(img_clip, item["duration"], config.final_resolution)
+
 def create_narrative_video(config, content_data):
     logger.info(f"Iniciando criação do vídeo com add_subtitles={config.add_subtitles}")
     clips = []
     total_duration = 0
     
     for i, item in enumerate(content_data):
-        if not os.path.exists(item["image_path"]):
-            raise FileNotFoundError(f"Imagem não encontrada: {item['image_path']}")
-        img_clip = ImageClip(item["image_path"])
-        if img_clip is None:
-            raise ValueError(f"Falha ao carregar imagem: {item['image_path']}")
-        img_clip_with_effect = apply_ken_burns_effect(img_clip, item["duration"], config.final_resolution)
+        scene_clip = create_scene_clip(item, config)
         audio_clip = item["audio_clip"]
-        scene = img_clip_with_effect.set_audio(audio_clip)
+        scene = scene_clip.set_audio(audio_clip)
         
         if config.add_subtitles:
             logger.info(f"Adicionando legendas para a cena {i+1} com prompt: '{item['prompt']}'")
             subtitle_clip = create_dynamic_subtitles(item["prompt"], item["duration"], config.final_resolution)
-            scene = CompositeVideoClip([scene, subtitle_clip])
+            # Garantir que a cena principal preencha toda a tela
+            scene = scene.resize(config.final_resolution)
+            scene = CompositeVideoClip([scene, subtitle_clip], size=config.final_resolution)
             logger.info(f"Legendas adicionadas à cena {i+1}")
         
         clips.append(scene)
         total_duration += item["duration"]
     
+    # Aplicar transições
     for i, clip in enumerate(clips):
         if i == 0:
             clips[i] = clip.fadein(0.5)

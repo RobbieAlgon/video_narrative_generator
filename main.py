@@ -154,6 +154,10 @@ def gerar_video(pipe, kokoro_pipeline):
     add_subtitles = input("Adicionar legendas dinâmicas? (sim/não): ").lower() in ["sim", "s"]
     logger.info(f"Opção de legendas escolhida: {add_subtitles}")
     
+    # Geração de vídeo
+    enable_video = input("Habilitar geração de vídeos dinâmicos? (sim/não): ").lower() in ["sim", "s"]
+    logger.info(f"Opção de geração de vídeo escolhida: {enable_video}")
+    
     # Criar pasta para o projeto
     pasta_projeto = criar_pasta_projeto(project_name)
     json_file_path = os.path.join(pasta_projeto, f"{project_name}_prompts.json")
@@ -168,7 +172,7 @@ def gerar_video(pipe, kokoro_pipeline):
 
     logger.info("Iniciando o gerador de vídeo narrativo...")
     print("Iniciando gerador de vídeo narrativo...")
-    config = VideoConfig(video_type, project_name, json_file_path, audio_path, voice, output_dir=pasta_projeto, lang_code=lang_code, add_subtitles=add_subtitles)
+    config = VideoConfig(video_type, project_name, json_file_path, audio_path, voice, output_dir=pasta_projeto, lang_code=lang_code, add_subtitles=add_subtitles, enable_video_generation=enable_video)
     logger.info(f"Configuração de legendas no VideoConfig: {config.add_subtitles}")
     prompts = process_json_prompts(config.json_file_path)
     content_data = generate_content(pipe, kokoro_pipeline, prompts, config)

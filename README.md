@@ -21,10 +21,6 @@ Siga os passos abaixo para instalar e configurar o projeto localmente:
 ### 1. Clonar o Repositório
 Clone este repositório para o seu computador:
 ```bash
-git clone https://github.com/RobbieAlgon/video_narrative_generator.git
-cd video_narrative_generator
-
-pip install -r requirements.txt
 
 Para o Kokoro funcionar corretamente, instale também o espeak-ng:
 Linux: sudo apt-get install espeak-ng
@@ -52,11 +48,7 @@ macOS: brew install espeak (se tiver Homebrew instalado).
 #########################################################################
 
 # 1. Primeiro, garanta que estamos no diretório /content
-%cd /content
-
-# 2. Remova o diretório existente (se houver) para evitar conflitos
-!rm -rf video_narrative_generator
-
+!### COMO RODAR O PROGRAMA
 # 3. Clone o repositório novamente
 !git clone https://github.com/RobbieAlgon/video_narrative_generator.git
 
