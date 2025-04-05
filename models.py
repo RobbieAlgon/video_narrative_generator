@@ -2,7 +2,7 @@ import torch
 from diffusers import DiffusionPipeline
 from kokoro import KPipeline
 
-def load_models():
+def load_models(lang_code='p'):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Usando dispositivo: {device}")
     print("Carregando Playground V2.5...")
@@ -13,7 +13,7 @@ def load_models():
     ).to(device)
     if torch.cuda.is_available():
         pipe.enable_attention_slicing()
-    print("Carregando modelo Kokoro...")
-    kokoro_pipeline = KPipeline(lang_code='p')
+    print(f"Carregando modelo Kokoro com idioma '{lang_code}'...")
+    kokoro_pipeline = KPipeline(lang_code=lang_code)
     print("Modelos carregados com sucesso!")
     return pipe, kokoro_pipeline

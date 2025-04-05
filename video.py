@@ -1,5 +1,5 @@
 import os
-from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip
+from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip, TextClip, ColorClip
 import moviepy.video.fx.all as vfx
 
 def apply_ken_burns_effect(img_clip, duration, final_resolution):
@@ -23,9 +23,40 @@ def apply_ken_burns_effect(img_clip, duration, final_resolution):
             .set_duration(duration))
     return clip.crop(x_center=width/2, y_center=height/2, width=width, height=height)
 
+def create_dynamic_subtitles(text, duration, final_resolution):
+    """Cria legendas dinâmicas com mudança de cor por palavra"""
+    width, height = final_resolution
+    words = text.split()
+    word_duration = duration / len(words)  # Duração aproximada de cada palavra
+    
+    subtitle_clips = []
+    colors = ['yellow', 'cyan', 'magenta', 'white', 'green']  # Cores para alternar
+    
+    for i, word in enumerate(words):
+        start_time = i * word_duration
+        end_time = (i + 1) * word_duration
+        
+        # Criar um clipe de texto para cada palavra
+        txt_clip = (TextClip(word, fontsize=50, font='Arial-Bold', color=colors[i % len(colors)], stroke_color='black', stroke_width=2)
+                    .set_position(('center', height - 100))
+                    .set_start(start_time)
+                    .set_end(end_time)
+                    .set_duration(word_duration))
+        
+        subtitle_clips.append(txt_clip)
+    
+    # Fundo semi-transparente para melhor visibilidade
+    bg_clip = (ColorClip(size=(width, 150), color=(0, 0, 0))
+               .set_opacity(0.5)
+               .set_position(('center', height - 125))
+               .set_duration(duration))
+    
+    return CompositeVideoClip([bg_clip] + subtitle_clips)
+
 def create_narrative_video(config, content_data):
     clips = []
     total_duration = 0
+    
     for item in content_data:
         if not os.path.exists(item["image_path"]):
             raise FileNotFoundError(f"Imagem não encontrada: {item['image_path']}")
@@ -35,8 +66,15 @@ def create_narrative_video(config, content_data):
         img_clip_with_effect = apply_ken_burns_effect(img_clip, item["duration"], config.final_resolution)
         audio_clip = item["audio_clip"]
         scene = img_clip_with_effect.set_audio(audio_clip)
+        
+        # Adicionar legendas dinâmicas se solicitado
+        if config.add_subtitles:
+            subtitle_clip = create_dynamic_subtitles(item["prompt"], item["duration"], config.final_resolution)
+            scene = CompositeVideoClip([scene, subtitle_clip])
+        
         clips.append(scene)
         total_duration += item["duration"]
+    
     for i, clip in enumerate(clips):
         if i == 0:
             clips[i] = vfx.fadein(clip, 0.5)
@@ -47,12 +85,14 @@ def create_narrative_video(config, content_data):
             if crossfade_duration > 0:
                 clips[i] = clips[i].crossfadeout(crossfade_duration)
                 clips[i+1] = clips[i+1].crossfadein(crossfade_duration)
+    
     final_video = concatenate_videoclips(clips, method="compose")
     if config.audio_path:
         bg_audio = AudioFileClip(config.audio_path).volumex(0.2).audio_fadeout(2)
         bg_audio = bg_audio.loop(duration=final_video.duration) if bg_audio.duration < final_video.duration else bg_audio.subclip(0, final_video.duration)
         final_audio = CompositeVideoClip([final_video.audio, bg_audio])
         final_video = final_video.set_audio(final_audio)
+    
     output_path = os.path.join(config.output_dir, config.output_filename)
     print(f"Renderizando vídeo... Duração total: {final_video.duration:.2f}s")
     final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac", bitrate="4000k", threads=4)

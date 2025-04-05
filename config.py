@@ -2,7 +2,7 @@ import os
 import torch
 
 class VideoConfig:
-    def __init__(self, video_type, project_name, json_file_path, audio_path=None, voice="pm_alex", output_dir=None, lang_code='p'):
+    def __init__(self, video_type, project_name, json_file_path, audio_path=None, voice="pm_alex", output_dir=None, lang_code='p', add_subtitles=False):
         self.video_type = video_type.lower()
         self.gen_resolution = (544, 960) if video_type == "short" else (960, 544)  # Ignorado pelo Playground
         self.final_resolution = (1080, 1920) if video_type == "short" else (1920, 1080)
@@ -15,3 +15,4 @@ class VideoConfig:
         self.output_dir = output_dir or "narrative_output"
         self.json_file_path = json_file_path
         self.lang_code = lang_code  # Código do idioma para o Kokoro
+        self.add_subtitles = add_subtitles  # Opção para legendas dinâmicas

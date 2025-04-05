@@ -56,7 +56,7 @@ def generate_content(pipe, kokoro_pipeline, prompts, config):
         audio_path = os.path.join(config.output_dir, item["audio_filename"])
         if not os.path.exists(audio_path):
             voice = config.voice
-            generator = kokoro_pipeline(item["prompt_audio"], voice=voice, lang_code=config.lang_code)
+            generator = kokoro_pipeline(item["prompt_audio"], voice=voice)
             for i, (gs, ps, audio) in enumerate(generator):
                 sf.write(audio_path, audio, 24000)
                 break
