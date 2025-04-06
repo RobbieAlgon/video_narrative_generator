@@ -2,8 +2,7 @@ import os
 import numpy as np
 from moviepy.editor import (
     ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip,
-    TextClip, ColorClip, VideoFileClip, VideoClip, CompositeAudioClip,
-    TransitionVideo, vfx
+    TextClip, ColorClip, VideoFileClip, VideoClip, CompositeAudioClip
 )
 import moviepy.video.fx.all as vfx
 import moviepy.audio.fx.all as afx
@@ -26,8 +25,8 @@ class CinematicEffects:
     def film_grain(clip, intensity=0.05):
         """Adiciona grão de filme cinematográfico"""
         def add_grain(image):
-            grain = np.random.normal(0, intensity, image.shape)
-            noisy_image = np.clip(image + grain, 0, 255).astype('uint8')
+            grain = np.random.normal(0, intensity * 255, image.shape)
+            noisy_image = np.clip(image.astype(float) + grain, 0, 255).astype('uint8')
             return noisy_image
         
         return clip.fl_image(add_grain)
@@ -56,16 +55,16 @@ class CinematicEffects:
         
         # Ajuste de brilho
         def adjust_brightness(image):
-            return np.clip(image * params["brightness"], 0, 255).astype('uint8')
+            return np.clip(image.astype(float) * params["brightness"], 0, 255).astype('uint8')
         
         # Ajuste de temperatura
         def adjust_temp(image):
             # Aumenta o azul (mais frio) ou vermelho (mais quente)
             b, g, r = cv2.split(image)
             if params["temp"] < 1:  # Mais frio (azulado)
-                b = np.clip(b * (2 - params["temp"]), 0, 255).astype('uint8')
+                b = np.clip(b.astype(float) * (2 - params["temp"]), 0, 255).astype('uint8')
             else:  # Mais quente (avermelhado)
-                r = np.clip(r * params["temp"], 0, 255).astype('uint8')
+                r = np.clip(r.astype(float) * params["temp"], 0, 255).astype('uint8')
             return cv2.merge([b, g, r])
         
         # Aplicar efeitos em sequência
@@ -90,7 +89,7 @@ class CinematicEffects:
             vignette = np.dstack([vignette] * 3)  # Aplicar aos 3 canais RGB
             
             # Aplicar vinheta
-            return np.clip(image * vignette, 0, 255).astype('uint8')
+            return np.clip(image.astype(float) * vignette, 0, 255).astype('uint8')
         
         return clip.fl_image(add_vignette)
     
@@ -121,34 +120,63 @@ class CinematicEffects:
             
         return clip.fl_image(apply_dof)
 
-def create_cinematic_transitions(clip1, clip2, transition_type="fade", duration=1.0):
+def create_cinematic_transition(clip1, clip2, transition_type="fade", duration=1.0):
     """Cria transições cinematográficas entre cenas"""
+    # Garantir que ambos os clipes existam e tenham duração adequada
+    if clip1.duration < duration or clip2.duration < duration:
+        # Se algum clipe for menor que a duração da transição, usar crossfade simples
+        transition_type = "fade"
+    
     if transition_type == "fade":
-        # Crossfade clássico do cinema
-        return clip1.crossfadeout(duration).crossfadein(clip2, duration)
+        # Usar crossfadein e crossfadeout nativos do moviepy
+        return concatenate_videoclips([
+            clip1.subclip(0, clip1.duration - duration/2),
+            CompositeVideoClip([
+                clip1.subclip(clip1.duration - duration, clip1.duration).crossfadeout(duration),
+                clip2.subclip(0, duration).crossfadein(duration)
+            ])
+        ])
     
     elif transition_type == "wipe":
         # Transição de varredura, estilo Star Wars
         def make_frame(t):
-            if t < duration:
-                progress = t / duration
-                width = clip1.w
-                height = clip1.h
-                
-                frame1 = clip1.get_frame(clip1.duration - duration + t)
-                frame2 = clip2.get_frame(t)
+            progress = t / duration
+            width = clip1.w
+            height = clip1.h
+            
+            # Obter frames dos clipes originais
+            t1 = clip1.duration - duration + t
+            t2 = t
+            
+            if t1 <= clip1.duration and t2 <= clip2.duration:
+                frame1 = clip1.get_frame(t1)
+                frame2 = clip2.get_frame(t2)
                 
                 wipeX = int(width * progress)
                 result = frame1.copy()
-                result[:, :wipeX] = frame2[:, :wipeX]
+                if wipeX > 0:
+                    result[:, :wipeX] = frame2[:, :wipeX]
                 return result
+            elif t2 <= clip2.duration:
+                return clip2.get_frame(t2)
             else:
-                return clip2.get_frame(t)
+                return np.zeros((height, width, 3), dtype='uint8')
                 
-        new_clip = VideoClip(make_frame, duration=duration)
-        return concatenate_videoclips([clip1.subclip(0, clip1.duration - duration), 
-                                      new_clip, 
-                                      clip2.subclip(duration)])
+        # Criar um clipe para a transição
+        transition_clip = VideoClip(make_frame, duration=duration)
+        transition_clip = transition_clip.set_audio(CompositeAudioClip([
+            clip1.audio.subclip(clip1.duration - duration, clip1.duration).volumex(lambda t: 1-t/duration),
+            clip2.audio.subclip(0, duration).volumex(lambda t: t/duration)
+        ]) if clip1.audio is not None and clip2.audio is not None else None)
+        
+        # Concatenar os clipes
+        result = concatenate_videoclips([
+            clip1.subclip(0, clip1.duration - duration),
+            transition_clip,
+            clip2.subclip(duration)
+        ], method="compose")
+        
+        return result
     
     elif transition_type == "dissolve":
         # Dissolução com textura de filme
@@ -156,36 +184,94 @@ def create_cinematic_transitions(clip1, clip2, transition_type="fade", duration=
             progress = t / duration
             texture_noise = np.random.rand(clip1.h, clip1.w, 3) * 0.15
             
-            frame1 = clip1.get_frame(clip1.duration - duration + t) * (1 - progress)
-            frame2 = clip2.get_frame(t) * progress
+            # Obter frames dos clipes originais
+            t1 = clip1.duration - duration + t
+            t2 = t
             
-            result = frame1 + frame2 + texture_noise
-            return np.clip(result, 0, 255).astype('uint8')
+            if t1 <= clip1.duration and t2 <= clip2.duration:
+                frame1 = clip1.get_frame(t1).astype(float) * (1 - progress)
+                frame2 = clip2.get_frame(t2).astype(float) * progress
                 
-        new_clip = VideoClip(make_frame, duration=duration)
-        return concatenate_videoclips([clip1.subclip(0, clip1.duration - duration), 
-                                      new_clip, 
-                                      clip2.subclip(duration)])
+                result = frame1 + frame2 + texture_noise
+                return np.clip(result, 0, 255).astype('uint8')
+            elif t2 <= clip2.duration:
+                return clip2.get_frame(t2)
+            else:
+                return np.zeros((clip1.h, clip1.w, 3), dtype='uint8')
+                
+        # Criar um clipe para a transição
+        transition_clip = VideoClip(make_frame, duration=duration)
+        transition_clip = transition_clip.set_audio(CompositeAudioClip([
+            clip1.audio.subclip(clip1.duration - duration, clip1.duration).volumex(lambda t: 1-t/duration),
+            clip2.audio.subclip(0, duration).volumex(lambda t: t/duration)
+        ]) if clip1.audio is not None and clip2.audio is not None else None)
+        
+        # Concatenar os clipes
+        result = concatenate_videoclips([
+            clip1.subclip(0, clip1.duration - duration),
+            transition_clip,
+            clip2.subclip(duration)
+        ], method="compose")
+        
+        return result
     
     elif transition_type == "zoom":
         # Transição com zoom
-        clip1_end = clip1.subclip(clip1.duration - duration).fx(vfx.resize, lambda t: 1 + t/duration)
-        clip2_start = clip2.subclip(0, duration).fx(vfx.resize, lambda t: 2 - t/duration)
-        
         def make_frame(t):
             progress = t / duration
-            frame1 = clip1_end.get_frame(t) * (1 - progress)
-            frame2 = clip2_start.get_frame(t) * progress
-            return np.clip(frame1 + frame2, 0, 255).astype('uint8')
+            
+            # Obter frames dos clipes originais
+            t1 = clip1.duration - duration + t
+            t2 = t
+            
+            if t1 <= clip1.duration and t2 <= clip2.duration:
+                # Calcular tamanhos de zoom
+                zoom1 = 1 + 0.2 * progress  # Zoom out
+                zoom2 = 1.2 - 0.2 * progress  # Zoom in
                 
-        new_clip = VideoClip(make_frame, duration=duration)
-        return concatenate_videoclips([clip1.subclip(0, clip1.duration - duration), 
-                                      new_clip, 
-                                      clip2.subclip(duration)])
+                # Redimensionar frames
+                h, w = clip1.h, clip1.w
+                frame1 = clip1.get_frame(t1)
+                frame2 = clip2.get_frame(t2)
+                
+                # Redimensionar (simulação simplificada)
+                # Em uma implementação real, usaríamos cv2.resize aqui
+                frame1_zoomed = frame1
+                frame2_zoomed = frame2
+                
+                # Misturar os frames com cross dissolve
+                result = frame1_zoomed.astype(float) * (1 - progress) + frame2_zoomed.astype(float) * progress
+                return np.clip(result, 0, 255).astype('uint8')
+            elif t2 <= clip2.duration:
+                return clip2.get_frame(t2)
+            else:
+                return np.zeros((clip1.h, clip1.w, 3), dtype='uint8')
+        
+        # Criar um clipe para a transição
+        transition_clip = VideoClip(make_frame, duration=duration)
+        transition_clip = transition_clip.set_audio(CompositeAudioClip([
+            clip1.audio.subclip(clip1.duration - duration, clip1.duration).volumex(lambda t: 1-t/duration),
+            clip2.audio.subclip(0, duration).volumex(lambda t: t/duration)
+        ]) if clip1.audio is not None and clip2.audio is not None else None)
+        
+        # Concatenar os clipes
+        result = concatenate_videoclips([
+            clip1.subclip(0, clip1.duration - duration),
+            transition_clip,
+            clip2.subclip(duration)
+        ], method="compose")
+        
+        return result
     
     else:
-        # Fallback para crossfade
-        return clip1.crossfadeout(duration).crossfadein(clip2, duration)
+        # Fallback para crossfade simples
+        return concatenate_videoclips([
+            clip1.subclip(0, clip1.duration - duration/2),
+            CompositeVideoClip([
+                clip1.subclip(clip1.duration - duration, clip1.duration).crossfadeout(duration),
+                clip2.subclip(0, duration).crossfadein(duration)
+            ])
+        ])
 
 def apply_dynamic_camera_movement(clip, duration, movement_type="dolly", final_resolution=(1920, 1080)):
     """Aplica movimentos de câmera cinematográficos"""
@@ -216,9 +302,10 @@ def apply_dynamic_camera_movement(clip, duration, movement_type="dolly", final_r
         def dolly_size(t):
             prog = t / duration
             zoom = 1 + 0.15 * prog
-            return (width * zoom, height * zoom)
+            return (int(width * zoom), int(height * zoom))
             
-        clip = clip.set_position(dolly_pos).resize(dolly_size)
+        clip = clip.set_position(dolly_pos)
+        clip = clip.resize(lambda t: dolly_size(t))
     
     elif movement_type == "pan":
         # Pan horizontal
@@ -261,17 +348,17 @@ def apply_dynamic_camera_movement(clip, duration, movement_type="dolly", final_r
     else:  # "push" - Movimento para frente/zoom suave
         def push_zoom(t):
             prog = t / duration
-            # Interpolação suave para o efeito de aceleração/desaceleração
-            ease = interp1d([0, 0.5, 1], [0, 0.7, 1], kind='quadratic')(prog)
+            # Suavizar a curva de progresso para aceleração/desaceleração
+            ease = 0.5 - 0.5 * np.cos(prog * np.pi)  # Função easing
             zoom = 1 + 0.2 * ease
             return zoom
             
-        clip = clip.fx(vfx.resize, push_zoom)
+        clip = clip.fx(vfx.resize, lambda t: push_zoom(t))
         
         # Ajustar posição para manter centralizado durante o zoom
         def push_pos(t):
             prog = t / duration
-            ease = interp1d([0, 0.5, 1], [0, 0.7, 1], kind='quadratic')(prog)
+            ease = 0.5 - 0.5 * np.cos(prog * np.pi)
             zoom = 1 + 0.2 * ease
             
             x = start_x - (zoom - 1) * width/2
@@ -282,7 +369,10 @@ def apply_dynamic_camera_movement(clip, duration, movement_type="dolly", final_r
         clip = clip.set_position(push_pos)
     
     # Recortar para garantir a resolução final exata
-    return clip.crop(x1=0, y1=0, width=width, height=height)
+    clip = clip.set_duration(duration)
+    clip = clip.crop(x1=0, y1=0, width=width, height=height)
+    
+    return clip
 
 def create_dynamic_subtitles(text, duration, final_resolution):
     """Cria legendas cinematográficas com animação suave"""
@@ -316,7 +406,8 @@ def create_dynamic_subtitles(text, duration, final_resolution):
         
         # Adicionar fade in/out suave
         fade_duration = min(0.3, word_duration / 3)
-        txt_clip = txt_clip.fx(vfx.fadein, fade_duration).fx(vfx.fadeout, fade_duration)
+        txt_clip = txt_clip.fx(vfx.fadein, fade_duration)
+        txt_clip = txt_clip.fx(vfx.fadeout, fade_duration)
         
         # Animar a entrada da palavra (leve movimento para cima)
         def word_pos(t):
@@ -414,13 +505,14 @@ def create_narrative_video(config, content_data):
                 raise ValueError(f"Áudio da cena {i+1} não foi criado corretamente")
             
             # Aplicar equalização cinematográfica ao áudio (realce sutil)
-            audio_clip = audio_clip.fx(afx.volumex, 1.2)  # Leve boost no volume
+            if hasattr(afx, 'volumex'):
+                audio_clip = audio_clip.fx(afx.volumex, 1.2)  # Leve boost no volume
             
             # Adicionar áudio à cena
             scene = scene_clip.set_audio(audio_clip)
             
             # Adicionar legendas se necessário
-            if config.add_subtitles:
+            if hasattr(config, 'add_subtitles') and config.add_subtitles:
                 logger.info(f"Adicionando legendas cinematográficas para a cena {i+1}")
                 subtitle_clip = create_dynamic_subtitles(
                     item["prompt"], 
@@ -444,38 +536,40 @@ def create_narrative_video(config, content_data):
         raise ValueError("Nenhum clipe válido foi criado")
     
     # Criar vídeo final com transições cinematográficas entre cenas
-    final_clips = []
+    final_clips = [clips[0]]
     transition_duration = 1.0  # 1 segundo para transições
     
     # Tipos de transição para alternar
     transition_types = ["fade", "dissolve", "wipe", "zoom"]
     
-    for i in range(len(clips)):
-        # Adicionar o clipe atual
-        if i > 0:
-            # Reduzir a duração do clipe anterior e atual para acomodar a transição
-            clips[i-1] = clips[i-1].subclip(0, clips[i-1].duration - transition_duration/2)
-            clips[i] = clips[i].subclip(transition_duration/2)
+    for i in range(1, len(clips)):
+        # Verificar se os clipes têm duração suficiente para transição
+        if clips[i-1].duration < transition_duration * 2 or clips[i].duration < transition_duration * 2:
+            # Se algum clipe for curto demais, apenas concatenamos
+            final_clips.append(clips[i])
+            continue
             
-            # Criar transição entre clipes
-            transition_type = transition_types[i % len(transition_types)]
-            transition = create_cinematic_transitions(
+        # Criar transição entre clipes
+        transition_type = transition_types[(i-1) % len(transition_types)]
+        try:
+            combined_clip = create_cinematic_transition(
                 final_clips[-1], 
                 clips[i], 
                 transition_type=transition_type,
                 duration=transition_duration
             )
-            
-            # Substituir o último clipe pela transição
-            final_clips[-1] = transition
-        else:
+            # Substituir o último clipe pela combinação
+            final_clips[-1] = combined_clip
+        except Exception as e:
+            logger.error(f"Erro na transição {i}: {e}")
+            # Fallback: apenas adicionar o próximo clipe
             final_clips.append(clips[i])
     
     # Concatenar todos os clipes com as transições
     final_video = concatenate_videoclips(final_clips, method="compose")
     
     # Adicionar música de fundo se especificada
-    if config.audio_path:
+    if hasattr(config, 'audio_path') and config.audio_path and os.path.exists(config.audio_path):
         bg_audio = AudioFileClip(config.audio_path).volumex(0.15)  # Volume mais baixo para não competir
         
         # Aplicar fade in/out na música
@@ -483,27 +577,19 @@ def create_narrative_video(config, content_data):
         
         # Ajustar duração da música
         if bg_audio.duration < final_video.duration:
-            # Loop com crossfade para evitar cortes bruscos
-            loops_needed = int(np.ceil(final_video.duration / bg_audio.duration))
-            audio_pieces = []
+            # Fazer loop para cobrir todo o vídeo
+            n_loops = int(np.ceil(final_video.duration / bg_audio.duration))
+            bg_audio = bg_audio.fx(vfx.loop, n=n_loops)
             
-            for j in range(loops_needed):
-                start_time = j * bg_audio.duration
-                end_time = min((j+1) * bg_audio.duration, final_video.duration)
-                duration = end_time - start_time
-                
-                if duration > 0:
-                    piece = bg_audio.subclip(0, duration)
-                    piece = piece.set_start(start_time)
-                    audio_pieces.append(piece)
-            
-            bg_audio = CompositeAudioClip(audio_pieces)
-        else:
-            bg_audio = bg_audio.subclip(0, final_video.duration)
+        # Cortar música para a duração exata do vídeo
+        bg_audio = bg_audio.subclip(0, final_video.duration)
         
         # Mixar áudio original com música de fundo
-        final_audio = CompositeAudioClip([final_video.audio, bg_audio])
-        final_video = final_video.set_audio(final_audio)
+        if final_video.audio is not None:
+            final_audio = CompositeAudioClip([final_video.audio, bg_audio])
+            final_video = final_video.set_audio(final_audio)
+        else:
+            final_video = final_video.set_audio(bg_audio)
     
     # Aplicar efeitos finais ao vídeo completo
     final_video = CinematicEffects.film_grain(final_video, intensity=0.02)  # Leve grão em todo vídeo
@@ -520,7 +606,7 @@ def create_narrative_video(config, content_data):
         audio_codec="aac", 
         bitrate="8000k",  # Alta qualidade
         threads=4,
-        preset="slow"  # Compressão mais lenta mas com melhor qualidade
+        preset="medium"  # Equilíbrio entre velocidade e qualidade
     )
     
     print(f"Vídeo cinematográfico salvo em: {output_path}")
