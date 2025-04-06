@@ -2,7 +2,7 @@ import os
 import numpy as np
 from moviepy.editor import (
     ImageClip, concatenate_videoclips, AudioFileClip, CompositeVideoClip,
-    TextClip, ColorClip, VideoFileClip, VideoClip, CompositeAudioClip
+    TextClip, ColorClip, VideoFileClip, VideoClip, CompositeAudioClip, concatenate_audioclips
 )
 import moviepy.video.fx.all as vfx
 import moviepy.audio.fx.all as afx
@@ -505,11 +505,7 @@ def create_narrative_video(config, content_data):
             if not isinstance(audio_clip, AudioFileClip):
                 raise ValueError(f"Áudio da cena {i+1} não foi criado corretamente")
             
-            # Aplicar equalização cinematográfica ao áudio (realce sutil)
-            if hasattr(afx, 'volumex'):
-                audio_clip = audio_clip.fx(afx.volumex, 1.2)  # Leve boost no volume
-            
-            # Adicionar áudio à cena
+            # Adicionar áudio à cena sem efeitos
             scene = scene_clip.set_audio(audio_clip)
             
             # Adicionar legendas se necessário
@@ -536,78 +532,49 @@ def create_narrative_video(config, content_data):
     if not clips:
         raise ValueError("Nenhum clipe válido foi criado")
     
-    # Criar vídeo final com transições cinematográficas entre cenas
-    final_clips = [clips[0]]
-    transition_duration = 1.0  # 1 segundo para transições
+    # Concatenar todos os clipes sem transição
+    final_video = concatenate_videoclips(clips, method="compose")
     
-    # Tipos de transição para alternar
-    transition_types = ["fade", "dissolve", "wipe", "zoom"]
-    
-    for i in range(1, len(clips)):
-        # Verificar se os clipes têm duração suficiente para transição
-        if clips[i-1].duration < transition_duration * 2 or clips[i].duration < transition_duration * 2:
-            # Se algum clipe for curto demais, apenas concatenamos
-            final_clips.append(clips[i])
-            continue
-            
-        # Criar transição entre clipes
-        transition_type = transition_types[(i-1) % len(transition_types)]
-        try:
-            combined_clip = create_cinematic_transition(
-                final_clips[-1], 
-                clips[i], 
-                transition_type=transition_type,
-                duration=transition_duration
-            )
-            # Substituir o último clipe pela combinação
-            final_clips[-1] = combined_clip
-        except Exception as e:
-            logger.error(f"Erro na transição {i}: {e}")
-            # Fallback: apenas adicionar o próximo clipe
-            final_clips.append(clips[i])
-    
-    # Concatenar todos os clipes com as transições
-    final_video = concatenate_videoclips(final_clips, method="compose")
-    
-    # Adicionar música de fundo se especificada
+    # Adicionar música de fundo se especificada (sem efeitos)
     if hasattr(config, 'audio_path') and config.audio_path and os.path.exists(config.audio_path):
-        bg_audio = AudioFileClip(config.audio_path).volumex(0.15)  # Volume mais baixo para não competir
-        
-        # Aplicar fade in/out na música
-        bg_audio = bg_audio.audio_fadein(3).audio_fadeout(3)
-        
-        # Ajustar duração da música
-        if bg_audio.duration < final_video.duration:
-            # Fazer loop para cobrir todo o vídeo
-            n_loops = int(np.ceil(final_video.duration / bg_audio.duration))
-            bg_audio = bg_audio.fx(vfx.loop, n=n_loops)
+        try:
+            bg_audio = AudioFileClip(config.audio_path)
             
-        # Cortar música para a duração exata do vídeo
-        bg_audio = bg_audio.subclip(0, final_video.duration)
-        
-        # Mixar áudio original com música de fundo
-        if final_video.audio is not None:
-            final_audio = CompositeAudioClip([final_video.audio, bg_audio])
-            final_video = final_video.set_audio(final_audio)
-        else:
-            final_video = final_video.set_audio(bg_audio)
+            # Reduzir volume diretamente com valor numérico (sem usar função)
+            bg_audio = bg_audio.volumex(0.15)
+            
+            # Ajustar duração da música
+            if bg_audio.duration < final_video.duration:
+                # Loop manual em vez de usar fx
+                repeats = int(np.ceil(final_video.duration / bg_audio.duration))
+                bg_audio_parts = [bg_audio] * repeats
+                bg_audio_extended = concatenate_audioclips(bg_audio_parts)
+                bg_audio = bg_audio_extended.subclip(0, final_video.duration)
+            else:
+                bg_audio = bg_audio.subclip(0, final_video.duration)
+            
+            # Mixar áudio original com música de fundo
+            if final_video.audio is not None:
+                final_audio = CompositeAudioClip([final_video.audio, bg_audio])
+                final_video = final_video.set_audio(final_audio)
+            else:
+                final_video = final_video.set_audio(bg_audio)
+        except Exception as e:
+            logger.error(f"Erro ao aplicar áudio de fundo: {e}")
+            logger.info("Continuando sem áudio de fundo")
     
-    # Aplicar efeitos finais ao vídeo completo
-    final_video = CinematicEffects.film_grain(final_video, intensity=0.02)  # Leve grão em todo vídeo
-    
-    # Renderizar vídeo final com alta qualidade
+    # Renderizar vídeo final com configurações simplificadas
     output_path = os.path.join(config.output_dir, config.output_filename)
     print(f"Renderizando vídeo cinematográfico... Duração total: {final_video.duration:.2f}s")
     
-    # Usar configurações de alta qualidade para renderização
+    # Usar configurações mais seguras para renderização
     final_video.write_videofile(
         output_path, 
-        fps=24,  # Padrão cinematográfico
+        fps=24,
         codec="libx264", 
         audio_codec="aac", 
-        bitrate="8000k",  # Alta qualidade
-        threads=4,
-        preset="medium"  # Equilíbrio entre velocidade e qualidade
+        bitrate="4000k",
+        threads=4
     )
     
     print(f"Vídeo cinematográfico salvo em: {output_path}")
