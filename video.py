@@ -114,11 +114,11 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     return subtitle_composite
 
 def create_scene_clip(item, config):
-    """Cria um clipe de cena com zoom e efeitos"""
+    """Cria um clipe de cena com zoom suave"""
     logger.info(f"Conteúdo do item: {item}")
     
     # Verificar se temos o caminho da imagem
-    image_path = item.get("image_path")
+    image_path = item.get("image_path") or item.get("filename", "")
     if not image_path or not os.path.exists(image_path):
         raise FileNotFoundError(f"Arquivo de imagem não encontrado: {image_path}")
     
@@ -131,7 +131,7 @@ def create_scene_clip(item, config):
     clip = clip.resize(width=config.final_resolution[0], height=config.final_resolution[1])
     
     # Aplicar zoom suave usando o método correto do MoviePy
-    zoom_factor = 1.1
+    zoom_factor = 1.1  # Zoom de 10%
     zoom_duration = item["duration"]
     
     # Criar função de zoom
@@ -171,40 +171,13 @@ def create_narrative_video(config, content_data):
                     size=config.final_resolution
                 )
             
-            # Aplicar fade in/out em cada cena
-            if i == 0:
-                scene = scene.fadein(0.5)
-            if i == len(content_data) - 1:
-                scene = scene.fadeout(0.8)
-            
             clips.append(scene)
         except Exception as e:
             logger.error(f"Erro ao processar cena {i+1}: {e}")
             raise
     
-    # Aplicar transições entre cenas
-    final_clips = []
-    for i, clip in enumerate(clips):
-        if i == 0:
-            final_clips.append(clip)
-        else:
-            # Calcular duração da transição (mínimo entre 0.5s e 25% da duração da cena mais curta)
-            crossfade_duration = min(0.5, min(clips[i-1].duration, clip.duration) * 0.25)
-            
-            # Aplicar crossfade
-            clip1 = clips[i-1].crossfadeout(crossfade_duration)
-            clip2 = clip.crossfadein(crossfade_duration)
-            
-            # Combinar os clipes com transição
-            transition = CompositeVideoClip(
-                [clip1, clip2],
-                size=config.final_resolution
-            ).set_duration(clips[i-1].duration + crossfade_duration)
-            
-            final_clips.append(transition)
-    
     # Concatenar todos os clipes
-    final_video = concatenate_videoclips(final_clips, method="compose")
+    final_video = concatenate_videoclips(clips, method="compose")
     
     # Adicionar música de fundo se especificada
     if config.audio_path:
