@@ -113,8 +113,8 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     subtitle_composite = CompositeVideoClip(text_clips, size=final_resolution)
     return subtitle_composite
 
-def create_scene_clip(item, config):
-    """Cria um clipe de cena com zoom suave"""
+def create_scene_clip(item, config, zoom_direction="in"):
+    """Cria um clipe de cena com zoom dinâmico"""
     logger.info(f"Conteúdo do item: {item}")
     
     # Verificar se temos o caminho da imagem
@@ -130,15 +130,16 @@ def create_scene_clip(item, config):
     # Garantir que a imagem preencha toda a tela
     clip = clip.resize(width=config.final_resolution[0], height=config.final_resolution[1])
     
-    # Aplicar zoom suave usando o método correto do MoviePy
-    zoom_factor = 1.1  # Zoom de 10%
+    # Aplicar zoom dinâmico
+    zoom_factor = 1.2  # Zoom de 20%
     zoom_duration = item["duration"]
     
-    # Criar função de zoom
+    # Criar função de zoom baseada na direção
     def zoom(t):
-        if t >= zoom_duration:
-            return 1.0
-        return 1 + (zoom_factor - 1) * (t / zoom_duration)
+        if zoom_direction == "in":
+            return 1 + (zoom_factor - 1) * (t / zoom_duration)
+        else:
+            return zoom_factor - (zoom_factor - 1) * (t / zoom_duration)
     
     # Aplicar o efeito de zoom
     zoomed_clip = clip.fx(vfx.resize, lambda t: zoom(t))
@@ -153,13 +154,19 @@ def create_narrative_video(config, content_data):
     
     for i, item in enumerate(content_data):
         try:
+            # Alternar entre zoom in e zoom out para cada cena
+            zoom_direction = "in" if i % 2 == 0 else "out"
+            
             # Criar clipe da cena principal
-            scene_clip = create_scene_clip(item, config)
+            scene_clip = create_scene_clip(item, config, zoom_direction)
             audio_clip = item["audio_clip"]
             
             # Garantir que o clipe principal preencha toda a tela
             scene_clip = scene_clip.resize(config.final_resolution)
             scene = scene_clip.set_audio(audio_clip)
+            
+            # Adicionar fade in/out suave
+            scene = scene.fadein(0.3).fadeout(0.3)
             
             if config.add_subtitles:
                 logger.info(f"Adicionando legendas para a cena {i+1}")
@@ -176,8 +183,27 @@ def create_narrative_video(config, content_data):
             logger.error(f"Erro ao processar cena {i+1}: {e}")
             raise
     
+    # Aplicar transições suaves entre cenas
+    final_clips = []
+    for i, clip in enumerate(clips):
+        if i == 0:
+            final_clips.append(clip)
+        else:
+            # Criar transição suave entre cenas
+            transition_duration = 0.5  # 0.5 segundos de transição
+            clip1 = clips[i-1].crossfadeout(transition_duration)
+            clip2 = clip.crossfadein(transition_duration)
+            
+            # Combinar os clipes com transição
+            transition = CompositeVideoClip(
+                [clip1, clip2],
+                size=config.final_resolution
+            ).set_duration(clips[i-1].duration + transition_duration)
+            
+            final_clips.append(transition)
+    
     # Concatenar todos os clipes
-    final_video = concatenate_videoclips(clips, method="compose")
+    final_video = concatenate_videoclips(final_clips, method="compose")
     
     # Adicionar música de fundo se especificada
     if config.audio_path:
