@@ -151,9 +151,21 @@ def create_narrative_video(config, content_data):
     
     for i, item in enumerate(content_data):
         try:
+            # Verificar se temos todos os dados necessários
+            if not item.get("duration"):
+                raise ValueError(f"Cena {i+1} não tem duração definida")
+            if not item.get("audio_clip"):
+                raise ValueError(f"Cena {i+1} não tem áudio definido")
+            
             # Criar clipe da cena principal
             scene_clip = create_scene_clip(item, config)
             audio_clip = item["audio_clip"]
+            
+            # Verificar se os clipes foram criados corretamente
+            if not isinstance(scene_clip, (ImageClip, VideoClip)):
+                raise ValueError(f"Clipe da cena {i+1} não foi criado corretamente")
+            if not isinstance(audio_clip, AudioFileClip):
+                raise ValueError(f"Áudio da cena {i+1} não foi criado corretamente")
             
             # Garantir que o clipe principal preencha toda a tela
             scene_clip = scene_clip.resize(config.final_resolution)
@@ -174,10 +186,18 @@ def create_narrative_video(config, content_data):
                     size=config.final_resolution
                 )
             
+            # Verificar se o clipe final tem duração
+            if not hasattr(scene, 'duration') or not scene.duration:
+                raise ValueError(f"Clipe final da cena {i+1} não tem duração definida")
+            
             clips.append(scene)
         except Exception as e:
             logger.error(f"Erro ao processar cena {i+1}: {e}")
             raise
+    
+    # Verificar se temos clipes para concatenar
+    if not clips:
+        raise ValueError("Nenhum clipe válido foi criado")
     
     # Concatenar todos os clipes com transição simples
     final_video = concatenate_videoclips(clips, method="compose", transition=0.3)
