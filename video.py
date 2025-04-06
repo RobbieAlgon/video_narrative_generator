@@ -115,10 +115,10 @@ def create_dynamic_subtitles(text, duration, final_resolution):
 
 def create_scene_clip(item, config):
     """Cria um clipe de cena com zoom e efeitos"""
-    logger.info(f"Conteúdo do item: {item}")  # Log para debug
+    logger.info(f"Conteúdo do item: {item}")
     
     # Verificar se temos o caminho da imagem
-    image_path = item.get("image_path") or os.path.join(config.output_dir, item.get("filename", ""))
+    image_path = item.get("image_path")
     if not image_path or not os.path.exists(image_path):
         raise FileNotFoundError(f"Arquivo de imagem não encontrado: {image_path}")
     
@@ -130,26 +130,25 @@ def create_scene_clip(item, config):
     # Garantir que a imagem preencha toda a tela
     clip = clip.resize(width=config.final_resolution[0], height=config.final_resolution[1])
     
-    # Aplicar zoom suave
+    # Aplicar zoom suave usando o método correto do MoviePy
     zoom_factor = 1.1
     zoom_duration = item["duration"]
     
-    def make_frame(t):
-        current_zoom = 1 + (zoom_factor - 1) * (t / zoom_duration)
-        return clip.resize(width=int(config.final_resolution[0] * current_zoom),
-                          height=int(config.final_resolution[1] * current_zoom))
+    # Criar função de zoom
+    def zoom(t):
+        if t >= zoom_duration:
+            return 1.0
+        return 1 + (zoom_factor - 1) * (t / zoom_duration)
     
-    # Criar clipe com zoom
-    zoom_clip = VideoClip(make_frame, duration=zoom_duration)
+    # Aplicar o efeito de zoom
+    zoomed_clip = clip.fx(vfx.resize, lambda t: zoom(t))
+    zoomed_clip = zoomed_clip.set_duration(zoom_duration)
     
-    # Garantir que o clipe final tenha a resolução correta
-    zoom_clip = zoom_clip.resize(config.final_resolution)
-    
-    return zoom_clip
+    return zoomed_clip
 
 def create_narrative_video(config, content_data):
     logger.info(f"Iniciando criação do vídeo com add_subtitles={config.add_subtitles}")
-    logger.info(f"Conteúdo recebido: {content_data}")  # Log para debug
+    logger.info(f"Conteúdo recebido: {content_data}")
     clips = []
     
     for i, item in enumerate(content_data):
