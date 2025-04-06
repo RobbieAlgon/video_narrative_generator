@@ -184,6 +184,10 @@ def create_narrative_video(config, content_data):
                     size=config.final_resolution
                 )
             
+            # Verificar se o clipe final tem duração
+            if not hasattr(scene, 'duration') or not scene.duration:
+                raise ValueError(f"Clipe final da cena {i+1} não tem duração definida")
+            
             clips.append(scene)
         except Exception as e:
             logger.error(f"Erro ao processar cena {i+1}: {e}")
@@ -193,8 +197,8 @@ def create_narrative_video(config, content_data):
     if not clips:
         raise ValueError("Nenhum clipe válido foi criado")
     
-    # Concatenar todos os clipes com transição simples
-    final_video = concatenate_videoclips(clips, method="compose", transition=0.5)
+    # Concatenar todos os clipes sem transição
+    final_video = concatenate_videoclips(clips, method="compose")
     
     # Adicionar música de fundo se especificada
     if config.audio_path:
