@@ -171,25 +171,40 @@ def create_narrative_video(config, content_data):
                     size=config.final_resolution
                 )
             
+            # Aplicar fade in/out em cada cena
+            if i == 0:
+                scene = scene.fadein(0.5)
+            if i == len(content_data) - 1:
+                scene = scene.fadeout(0.8)
+            
             clips.append(scene)
         except Exception as e:
             logger.error(f"Erro ao processar cena {i+1}: {e}")
             raise
     
-    # Aplicar transições
+    # Aplicar transições entre cenas
+    final_clips = []
     for i, clip in enumerate(clips):
         if i == 0:
-            clips[i] = clip.fadein(0.5)
-        if i == len(clips) - 1:
-            clips[i] = clip.fadeout(0.8)
-        elif i < len(clips) - 1:
-            crossfade_duration = min(0.5, clips[i].duration / 4, clips[i+1].duration / 4)
-            if crossfade_duration > 0:
-                clips[i] = clips[i].crossfadeout(crossfade_duration)
-                clips[i+1] = clips[i+1].crossfadein(crossfade_duration)
+            final_clips.append(clip)
+        else:
+            # Calcular duração da transição (mínimo entre 0.5s e 25% da duração da cena mais curta)
+            crossfade_duration = min(0.5, min(clips[i-1].duration, clip.duration) * 0.25)
+            
+            # Aplicar crossfade
+            clip1 = clips[i-1].crossfadeout(crossfade_duration)
+            clip2 = clip.crossfadein(crossfade_duration)
+            
+            # Combinar os clipes com transição
+            transition = CompositeVideoClip(
+                [clip1, clip2],
+                size=config.final_resolution
+            ).set_duration(clips[i-1].duration + crossfade_duration)
+            
+            final_clips.append(transition)
     
     # Concatenar todos os clipes
-    final_video = concatenate_videoclips(clips, method="compose")
+    final_video = concatenate_videoclips(final_clips, method="compose")
     
     # Adicionar música de fundo se especificada
     if config.audio_path:
