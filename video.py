@@ -404,6 +404,9 @@ def create_dynamic_subtitles(text, duration, final_resolution):
             method='label'
         )
         
+        # Definir duração do clipe antes de aplicar efeitos
+        txt_clip = txt_clip.set_duration(word_duration)
+        
         # Adicionar fade in/out suave
         fade_duration = min(0.3, word_duration / 3)
         txt_clip = txt_clip.fx(vfx.fadein, fade_duration)
@@ -418,10 +421,8 @@ def create_dynamic_subtitles(text, duration, final_resolution):
             
         txt_clip = txt_clip.set_position(word_pos)
         
-        # Definir duração e tempo
+        # Definir tempo de início
         txt_clip = txt_clip.set_start(start_time)
-        txt_clip = txt_clip.set_end(end_time)
-        txt_clip = txt_clip.set_duration(word_duration)
         
         text_clips.append(txt_clip)
     
