@@ -114,7 +114,7 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     return subtitle_composite
 
 def create_scene_clip(item, config):
-    """Cria um clipe de cena com zoom dinâmico"""
+    """Cria um clipe de cena com zoom suave"""
     logger.info(f"Conteúdo do item: {item}")
     
     # Verificar se temos o caminho da imagem
@@ -130,7 +130,7 @@ def create_scene_clip(item, config):
     # Garantir que a imagem preencha toda a tela
     clip = clip.resize(width=config.final_resolution[0], height=config.final_resolution[1])
     
-    # Aplicar zoom dinâmico
+    # Aplicar zoom suave
     zoom_factor = 1.3  # Zoom de 30%
     zoom_duration = item["duration"]
     
@@ -173,9 +173,6 @@ def create_narrative_video(config, content_data):
             # Adicionar áudio apenas à cena atual
             scene = scene_clip.set_audio(audio_clip)
             
-            # Adicionar fade in/out suave
-            scene = scene.fadein(0.3).fadeout(0.3)
-            
             if config.add_subtitles:
                 logger.info(f"Adicionando legendas para a cena {i+1}")
                 subtitle_clip = create_dynamic_subtitles(item["prompt"], item["duration"], config.final_resolution)
@@ -186,10 +183,6 @@ def create_narrative_video(config, content_data):
                     size=config.final_resolution
                 )
             
-            # Verificar se o clipe final tem duração
-            if not hasattr(scene, 'duration') or not scene.duration:
-                raise ValueError(f"Clipe final da cena {i+1} não tem duração definida")
-            
             clips.append(scene)
         except Exception as e:
             logger.error(f"Erro ao processar cena {i+1}: {e}")
@@ -199,8 +192,8 @@ def create_narrative_video(config, content_data):
     if not clips:
         raise ValueError("Nenhum clipe válido foi criado")
     
-    # Concatenar todos os clipes com transição simples
-    final_video = concatenate_videoclips(clips, method="compose", transition=0.3)
+    # Concatenar todos os clipes sem transição
+    final_video = concatenate_videoclips(clips, method="compose")
     
     # Adicionar música de fundo se especificada
     if config.audio_path:
