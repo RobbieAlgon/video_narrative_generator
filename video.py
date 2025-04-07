@@ -440,88 +440,105 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     return subtitle_composite
 
 def create_scene_clip(item, config):
-    """Cria um clipe de cena com movimento de câmera cinematográfico"""
-    logger.info(f"Criando clipe cinematográfico para a cena: {item.get('image_path', 'desconhecido')}")
+    """Cria um clipe de cena com zoom suave e garantindo preenchimento total da tela"""
+    logger.info(f"Criando clipe para a cena: {item.get('image_path')}")
     
     # Verificar se temos o caminho da imagem
     image_path = item.get("image_path") or item.get("filename", "")
     if not image_path or not os.path.exists(image_path):
         raise FileNotFoundError(f"Arquivo de imagem não encontrado: {image_path}")
     
+    width, height = config.final_resolution
+    
     # Criar clipe da imagem
-    clip = ImageClip(image_path)
+    img_clip = ImageClip(image_path)
     
-    # Selecionar movimento de câmera aleatório para variedade
-    camera_movements = ["dolly", "pan", "tilt", "arc", "push"]
-    movement_type = random.choice(camera_movements)
+    # Calcular proporções para garantir que a imagem cubra toda a tela
+    img_width, img_height = img_clip.size
     
-    # Aplicar movimento de câmera cinematográfico
-    clip = apply_dynamic_camera_movement(
-        clip, 
-        item["duration"], 
-        movement_type=movement_type,
-        final_resolution=config.final_resolution
+    # Determinar o fator de escala para garantir que a imagem cubra toda a tela
+    width_ratio = width / img_width
+    height_ratio = height / img_height
+    scale_factor = max(width_ratio, height_ratio) * 1.1  # Adiciona 10% extra para garantir cobertura
+    
+    # Redimensionar a imagem para garantir cobertura total
+    img_clip = img_clip.resize(width=img_width*scale_factor, height=img_height*scale_factor)
+    
+    # Centralizar a imagem
+    img_clip = img_clip.set_position("center")
+    
+    # Aplicar efeito de zoom suave e lento
+    duration = item["duration"]
+    
+    def zoom_effect(t):
+        # Zoom aumenta de 1.0 até 1.15 (15% de zoom) ao longo da duração
+        zoom_factor = 1.0 + (0.15 * t / duration)
+        return zoom_factor
+    
+    # Aplicar efeito de zoom à imagem
+    zoomed_clip = img_clip.fx(
+        vfx.resize, 
+        lambda t: zoom_effect(t)
     )
     
-    # Aplicar efeitos cinematográficos
-    # Selecionar estilo de color grading baseado na cena
-    styles = ["drama", "thriller", "romance", "sci_fi"]
-    style = item.get("mood", random.choice(styles))
+    # Cortar para garantir que estamos exatamente no tamanho desejado
+    result_clip = zoomed_clip.set_duration(duration).crop(
+        x_center=zoomed_clip.w/2,
+        y_center=zoomed_clip.h/2,
+        width=width,
+        height=height
+    )
     
-    # Aplicar color grading
-    clip = CinematicEffects.cinematic_color_grading(clip, style=style)
-    
-    # Adicionar grão de filme sutil
-    clip = CinematicEffects.film_grain(clip, intensity=0.03)
-    
-    # Adicionar vinheta
-    clip = CinematicEffects.vignette_effect(clip, intensity=0.25)
-    
-    # Definir duração
-    clip = clip.set_duration(item["duration"])
-    
-    return clip
+    return result_clip
 
 def create_narrative_video(config, content_data):
-    logger.info(f"Iniciando criação de vídeo cinematográfico")
+    logger.info(f"Iniciando criação do vídeo com add_subtitles={config.add_subtitles}")
+    logger.info(f"Conteúdo recebido: {len(content_data)} cenas")
+    
     clips = []
     
-    # Processar cada cena com efeitos cinematográficos
     for i, item in enumerate(content_data):
         try:
-            # Verificar dados necessários
+            # Verificar se temos todos os dados necessários
             if not item.get("duration"):
                 raise ValueError(f"Cena {i+1} não tem duração definida")
             if not item.get("audio_clip"):
                 raise ValueError(f"Cena {i+1} não tem áudio definido")
             
-            # Criar clipe da cena com efeitos cinematográficos
+            logger.info(f"Processando cena {i+1} com duração {item['duration']}s")
+            
+            # Criar clipe da cena principal
             scene_clip = create_scene_clip(item, config)
             audio_clip = item["audio_clip"]
             
-            # Verificar se os clipes foram criados corretamente
-            if not isinstance(scene_clip, (ImageClip, VideoClip)):
-                raise ValueError(f"Clipe da cena {i+1} não foi criado corretamente")
-            if not isinstance(audio_clip, AudioFileClip):
-                raise ValueError(f"Áudio da cena {i+1} não foi criado corretamente")
-            
-            # Adicionar áudio à cena sem efeitos
+            # Adicionar áudio à cena
             scene = scene_clip.set_audio(audio_clip)
             
-            # Adicionar legendas se necessário
-            if hasattr(config, 'add_subtitles') and config.add_subtitles:
-                logger.info(f"Adicionando legendas cinematográficas para a cena {i+1}")
-                subtitle_clip = create_dynamic_subtitles(
-                    item["prompt"], 
-                    item["duration"], 
-                    config.final_resolution
-                )
+            # Adicionar legendas se solicitado
+            if config.add_subtitles:
+                logger.info(f"Adicionando legendas para a cena {i+1}")
+                try:
+                    subtitle_clip = TextClip(
+                        item["prompt"],
+                        fontsize=30,
+                        color='white',
+                        bg_color='rgba(0,0,0,0.5)',
+                        font='Arial-Bold',
+                        kerning=2,
+                        method='caption',
+                        align='center',
+                        size=(config.final_resolution[0] - 100, None)
+                    )
+                    subtitle_clip = subtitle_clip.set_position(('center', config.final_resolution[1] - 100))
+                    subtitle_clip = subtitle_clip.set_duration(item["duration"])
                 
-                # Combinar cena principal com legendas
-                scene = CompositeVideoClip(
-                    [scene, subtitle_clip],
-                    size=config.final_resolution
-                )
+                    # Combinar cena principal com legendas
+                    scene = CompositeVideoClip(
+                        [scene, subtitle_clip],
+                        size=config.final_resolution
+                    )
+                except Exception as e:
+                    logger.error(f"Erro ao criar legendas: {e}")
             
             clips.append(scene)
         except Exception as e:
@@ -532,20 +549,47 @@ def create_narrative_video(config, content_data):
     if not clips:
         raise ValueError("Nenhum clipe válido foi criado")
     
-    # Concatenar todos os clipes sem transição
-    final_video = concatenate_videoclips(clips, method="compose")
+    # Aplicar transições entre cenas
+    final_clips = []
     
-    # Adicionar música de fundo se especificada (sem efeitos)
+    if len(clips) == 1:
+        final_clips = clips
+    else:
+        cross_duration = 1.0  # Duração da transição em segundos
+        
+        # Adicionar o primeiro clipe
+        final_clips.append(clips[0])
+        
+        # Aplicar crossfade entre os clipes
+        for i in range(1, len(clips)):
+            current_clip = clips[i]
+            
+            # Verificar se temos duração suficiente para a transição
+            if clips[i-1].duration < cross_duration * 1.5 or current_clip.duration < cross_duration * 1.5:
+                # Se os clipes forem muito curtos, apenas adicionamos sem transição
+                final_clips.append(current_clip)
+                continue
+            
+            # Aplicar crossfade
+            try:
+                transition_clip = vfx.crossfadein(current_clip, cross_duration)
+                final_clips.append(transition_clip)
+            except Exception as e:
+                logger.error(f"Erro ao aplicar transição: {e}")
+                final_clips.append(current_clip)
+    
+    # Concatenar os clipes
+    final_video = concatenate_videoclips(final_clips, method="compose")
+    
+    # Adicionar música de fundo se especificada
     if hasattr(config, 'audio_path') and config.audio_path and os.path.exists(config.audio_path):
         try:
             bg_audio = AudioFileClip(config.audio_path)
-            
-            # Reduzir volume diretamente com valor numérico (sem usar função)
-            bg_audio = bg_audio.volumex(0.15)
+            bg_audio = bg_audio.volumex(0.2)  # Volume baixo para não competir com a narração
             
             # Ajustar duração da música
             if bg_audio.duration < final_video.duration:
-                # Loop manual em vez de usar fx
+                # Repetir o áudio para cobrir todo o vídeo
                 repeats = int(np.ceil(final_video.duration / bg_audio.duration))
                 bg_audio_parts = [bg_audio] * repeats
                 bg_audio_extended = concatenate_audioclips(bg_audio_parts)
@@ -553,29 +597,27 @@ def create_narrative_video(config, content_data):
             else:
                 bg_audio = bg_audio.subclip(0, final_video.duration)
             
-            # Mixar áudio original com música de fundo
+            # Misturar com o áudio existente
             if final_video.audio is not None:
                 final_audio = CompositeAudioClip([final_video.audio, bg_audio])
                 final_video = final_video.set_audio(final_audio)
             else:
                 final_video = final_video.set_audio(bg_audio)
         except Exception as e:
-            logger.error(f"Erro ao aplicar áudio de fundo: {e}")
-            logger.info("Continuando sem áudio de fundo")
+            logger.error(f"Erro ao adicionar música de fundo: {e}")
     
-    # Renderizar vídeo final com configurações simplificadas
+    # Renderizar vídeo final
     output_path = os.path.join(config.output_dir, config.output_filename)
-    print(f"Renderizando vídeo cinematográfico... Duração total: {final_video.duration:.2f}s")
+    print(f"Renderizando vídeo... Duração total: {final_video.duration:.2f}s")
     
-    # Usar configurações mais seguras para renderização
     final_video.write_videofile(
         output_path, 
-        fps=24,
+        fps=24, 
         codec="libx264", 
         audio_codec="aac", 
-        bitrate="4000k",
+        bitrate="5000k",
         threads=4
     )
     
-    print(f"Vídeo cinematográfico salvo em: {output_path}")
+    print(f"Vídeo narrativo salvo em: {output_path}")
     return output_path
