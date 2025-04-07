@@ -375,8 +375,8 @@ def apply_dynamic_camera_movement(clip, duration, movement_type="dolly", final_r
     return clip
 
 def create_dynamic_subtitles(text, duration, final_resolution):
-    """Cria legendas cinematográficas com animação suave"""
-    logger.info(f"Gerando legendas para o texto: '{text}' com duração {duration}s")
+    """Cria legendas dinâmicas word-by-word sem fundo"""
+    logger.info(f"Gerando legendas dinâmicas para o texto: '{text}' com duração {duration}s")
     width, height = final_resolution
     words = text.split()
     word_duration = duration / len(words)
@@ -384,16 +384,15 @@ def create_dynamic_subtitles(text, duration, final_resolution):
     # Criar clipes de texto para cada palavra
     text_clips = []
     
-    # Definir cores elegantes para as palavras (tons mais suaves e cinematográficos)
-    colors = ['#F5F5DC', '#E6E6FA', '#F0FFF0', '#FFF5EE', '#F0FFFF']
+    # Definir cores elegantes para as palavras
+    colors = ['#FFFFFF', '#F5F5F5', '#FAFAFA', '#F0F0F0', '#EFEFEF']
     
     font_size = min(40, int(width / 25))  # Tamanho de fonte adaptativo
     
     for i, word in enumerate(words):
         start_time = i * word_duration
-        end_time = (i + 1) * word_duration
         
-        # Criar clipe de texto com uma fonte mais cinematográfica
+        # Criar clipe de texto com uma fonte elegante
         txt_clip = TextClip(
             word,
             fontsize=font_size,
@@ -404,7 +403,7 @@ def create_dynamic_subtitles(text, duration, final_resolution):
             method='label'
         )
         
-        # Definir duração do clipe antes de aplicar efeitos
+        # Definir duração do clipe
         txt_clip = txt_clip.set_duration(word_duration)
         
         # Adicionar fade in/out suave
@@ -426,16 +425,8 @@ def create_dynamic_subtitles(text, duration, final_resolution):
         
         text_clips.append(txt_clip)
     
-    # Adicionar sombra cinematográfica para as legendas
-    shadow_bg = ColorClip(
-        size=(width, 100),
-        color=(0, 0, 0)
-    ).set_opacity(0.5).set_position(('center', height - 100))
-    shadow_bg = shadow_bg.set_duration(duration)
-    
-    # Combinar legendas com sombra
-    subtitle_clips = [shadow_bg] + text_clips
-    subtitle_composite = CompositeVideoClip(subtitle_clips, size=final_resolution)
+    # Criar um clipe composto apenas com as palavras (sem fundo)
+    subtitle_composite = CompositeVideoClip(text_clips, size=final_resolution)
     
     return subtitle_composite
 
@@ -514,24 +505,16 @@ def create_narrative_video(config, content_data):
             # Adicionar áudio à cena
             scene = scene_clip.set_audio(audio_clip)
             
-            # Adicionar legendas se solicitado
+            # Adicionar legendas dinâmicas se solicitado
             if config.add_subtitles:
-                logger.info(f"Adicionando legendas para a cena {i+1}")
+                logger.info(f"Adicionando legendas dinâmicas para a cena {i+1}")
                 try:
-                    subtitle_clip = TextClip(
-                        item["prompt"],
-                        fontsize=30,
-                        color='white',
-                        bg_color='rgba(0,0,0,0.5)',
-                        font='Arial-Bold',
-                        kerning=2,
-                        method='caption',
-                        align='center',
-                        size=(config.final_resolution[0] - 100, None)
+                    subtitle_clip = create_dynamic_subtitles(
+                        item["prompt"], 
+                        item["duration"], 
+                        config.final_resolution
                     )
-                    subtitle_clip = subtitle_clip.set_position(('center', config.final_resolution[1] - 100))
-                    subtitle_clip = subtitle_clip.set_duration(item["duration"])
-                
+                    
                     # Combinar cena principal com legendas
                     scene = CompositeVideoClip(
                         [scene, subtitle_clip],
@@ -549,36 +532,63 @@ def create_narrative_video(config, content_data):
     if not clips:
         raise ValueError("Nenhum clipe válido foi criado")
     
-    # Aplicar transições entre cenas
+    # Criar transições dinâmicas entre cenas
     final_clips = []
     
     if len(clips) == 1:
         final_clips = clips
     else:
-        cross_duration = 1.0  # Duração da transição em segundos
-        
-        # Adicionar o primeiro clipe
+        # Primeiro clipe permanece como está
         final_clips.append(clips[0])
         
-        # Aplicar crossfade entre os clipes
+        # Criar transições para cada par de clipes subsequentes
         for i in range(1, len(clips)):
+            prev_clip = clips[i-1]
             current_clip = clips[i]
             
-            # Verificar se temos duração suficiente para a transição
-            if clips[i-1].duration < cross_duration * 1.5 or current_clip.duration < cross_duration * 1.5:
-                # Se os clipes forem muito curtos, apenas adicionamos sem transição
-                final_clips.append(current_clip)
-                continue
+            # Usar vários tipos de transição de forma alternada para variedade
+            transition_types = ["dissolve", "crossfade", "fade"]
+            transition_type = transition_types[i % len(transition_types)]
             
-            # Aplicar crossfade
+            # Duração da transição - mais curta para clipes curtos
+            min_duration = min(prev_clip.duration, current_clip.duration)
+            transition_duration = min(1.0, min_duration / 4)
+            
             try:
-                transition_clip = vfx.crossfadein(current_clip, cross_duration)
-                final_clips.append(transition_clip)
+                if transition_type == "crossfade" or transition_type == "fade":
+                    # Usar o crossfadein nativo da MoviePy
+                    transition_clip = vfx.crossfadein(current_clip, transition_duration)
+                    final_clips.append(transition_clip)
+                    
+                elif transition_type == "dissolve":
+                    # Transição com dissolução
+                    # Calcular o ponto inicial de transição no clipe anterior
+                    overlap_start = max(0, prev_clip.duration - transition_duration)
+                    
+                    # Recortar o final do clipe anterior para a transição
+                    clip1_part = prev_clip.subclip(0, overlap_start)
+                    
+                    # Criar uma região de sobreposição
+                    overlap = CompositeVideoClip([
+                        prev_clip.subclip(overlap_start).set_opacity(lambda t: 1 - t/transition_duration),
+                        current_clip.subclip(0, transition_duration).set_opacity(lambda t: t/transition_duration)
+                    ])
+                    
+                    # Adicionar o resto do clipe atual
+                    clip2_part = current_clip.subclip(transition_duration)
+                    
+                    # Concatenar as partes sem transição
+                    composite = concatenate_videoclips([clip1_part, overlap, clip2_part], method="compose")
+                    final_clips[-1] = composite
+                else:
+                    # Fallback para adição simples se a transição falhar
+                    final_clips.append(current_clip)
             except Exception as e:
                 logger.error(f"Erro ao aplicar transição: {e}")
+                # Adicionar o clipe atual sem transição em caso de erro
                 final_clips.append(current_clip)
     
-    # Concatenar os clipes
+    # Concatenar os clipes finais
     final_video = concatenate_videoclips(final_clips, method="compose")
     
     # Adicionar música de fundo se especificada
