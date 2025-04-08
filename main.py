@@ -107,7 +107,7 @@ def gerar_storyboard_grok(historia, num_cenas, estilo, tipo, lang_code='p'):
     prompt = gerar_prompt(historia, num_cenas, estilo, tipo, lang_code)
     resposta = client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
-        model="llama3-70b-8192",
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
         response_format={"type": "json_object"},
         temperature=0.3
     ).choices[0].message.content
